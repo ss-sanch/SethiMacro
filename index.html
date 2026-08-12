@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SethiMacro | Big Picture Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        body { background-color: #0b0f19; color: #ffffff; }
+        .chart-container { background-color: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; }
+    </style>
+</head>
+<body class="p-8">
+
+    <div class="max-w-7xl mx-auto mb-8">
+        <h1 class="text-4xl font-bold tracking-tight text-white">Sethi<span class="text-blue-500">Macro</span></h1>
+        <p class="text-gray-400 mt-2">US Macroeconomic & Risk Dashboard. Live data from the Federal Reserve (FRED).</p>
+    </div>
+
+    <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        <div class="chart-container lg:col-span-2">
+            <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">US Treasury Yield Curve (Live)</h2>
+            <div id="yieldCurveChart" style="height: 400px; width: 100%;"></div>
+        </div>
+
+        <div class="chart-container">
+            <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">US Inflation (CPI YoY %)</h2>
+            <div id="cpiChart" style="height: 350px; width: 100%;"></div>
+        </div>
+
+        <div class="chart-container">
+            <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">Effective Federal Funds Rate</h2>
+            <div id="fedFundsChart" style="height: 350px; width: 100%;"></div>
+        </div>
+
+    </div>
+
+    <script>
+        const API_BASE = "http://127.0.0.1:8000/api";
+
+        // Premium Dark Mode Layout settings for Plotly
+        const layoutTemplate = {
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: '#9ca3af' },
+            xaxis: { gridcolor: '#1f2937', showline: true, linecolor: '#374151' },
+            yaxis: { gridcolor: '#1f2937', showline: true, linecolor: '#374151' },
+            margin: { t: 20, r: 20, l: 40, b: 40 }
+        };
+
+        async function fetchAndRenderData() {
+            try {
+                // 1. Fetch data from your Python Backend
+                const yieldRes = await fetch(`${API_BASE}/yield-curve`);
+                const macroRes = await fetch(`${API_BASE}/macro-metrics`);
+                
+                const yieldData = await yieldRes.json();
+                const macroData = await macroRes.json();
+
+                // 2. Render Yield Curve
+                const yieldX = ["3 Month", "2 Year", "10 Year", "30 Year"];
+                const yieldY = [
+                    yieldData["3_Month"].value, 
+                    yieldData["2_Year"].value, 
+                    yieldData["10_Year"].value, 
+                    yieldData["30_Year"].value
+                ];
+
+                Plotly.newPlot('yieldCurveChart', [{
+                    x: yieldX, y: yieldY, type: 'scatter', mode: 'lines+markers',
+                    line: { color: '#3b82f6', width: 3, shape: 'spline' },
+                    marker: { size: 10, color: '#60a5fa' }
+                }], { ...layoutTemplate, yaxis: { ...layoutTemplate.yaxis, title: 'Yield (%)' } }, {displayModeBar: false});
+
+                // 3. Prepare Macro Data (Reverse so time goes left-to-right)
+                const cpi = macroData.CPI_Inflation_YoY.reverse();
+                const rates = macroData.Fed_Funds_Rate.reverse();
+
+                // 4. Render CPI (Inflation)
+                Plotly.newPlot('cpiChart', [{
+                    x: cpi.map(d => d.date), y: cpi.map(d => d.value),
+                    type: 'scatter', mode: 'lines+markers',
+                    line: { color: '#ef4444', width: 3 },
+                    fill: 'tozeroy', fillcolor: 'rgba(239, 68, 68, 0.1)'
+                }], { ...layoutTemplate, yaxis: { ...layoutTemplate.yaxis, title: 'YoY % Change' } }, {displayModeBar: false});
+
+                // 5. Render Fed Funds Rate
+                Plotly.newPlot('fedFundsChart', [{
+                    x: rates.map(d => d.date), y: rates.map(d => d.value),
+                    type: 'scatter', mode: 'lines+markers',
+                    line: { color: '#10b981', width: 3, shape: 'hv' }, // 'hv' gives it the rigid central bank step-look
+                    fill: 'tozeroy', fillcolor: 'rgba(16, 185, 129, 0.1)'
+                }], { ...layoutTemplate, yaxis: { ...layoutTemplate.yaxis, title: 'Interest Rate (%)' } }, {displayModeBar: false});
+
+            } catch (error) {
+                console.error("Error loading SethiMacro data:", error);
+                alert("Failed to connect to SethiMacro Backend. Is the Python server running?");
+            }
+        }
+
+        // Boot the engine when the page loads
+        fetchAndRenderData();
+    </script>
+</body>
+</html>

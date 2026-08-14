@@ -110,9 +110,10 @@ def get_quant_signals():
     # 2. The Sahm Rule Recession Indicator
     # Math: Current 3-mo avg unemployment minus the lowest 3-mo avg over the last 12 months.
     try:
-        unrate = get_fred_data("UNRATE", limit=15) # Get 15 months to calculate moving averages
-        if len(unrate) == 15:
-            rates = [x["value"] for x in unrate][::-1] # Reverse to chronological order (oldest to newest)
+        unrate = get_fred_data("UNRATE", limit=15)
+        # Relaxed strictness: as long as we have at least 12 months, we can calculate it
+        if len(unrate) >= 12:
+            rates = [x["value"] for x in unrate][::-1]
             
             # Calculate 3-month moving averages
             three_mo_avgs = []
@@ -120,13 +121,16 @@ def get_quant_signals():
                 three_mo_avgs.append(sum(rates[i:i+3]) / 3)
             
             current_3mo_avg = three_mo_avgs[-1]
-            lowest_12mo_avg = min(three_mo_avgs[:-1]) # Lowest of the preceding periods
+            # Get the lowest 3-mo avg from the preceding 12 months (or available months)
+            lowest_12mo_avg = min(three_mo_avgs[-12:-1]) if len(three_mo_avgs) > 1 else min(three_mo_avgs[:-1])
             
             sahm_value = round(current_3mo_avg - lowest_12mo_avg, 2)
             signals["Sahm_Rule"] = {
                 "value": sahm_value,
                 "status": "RECESSION TRIGGERED" if sahm_value >= 0.50 else "NORMAL"
             }
+        else:
+            signals["Sahm_Rule"] = {"value": "N/A", "status": "Awaiting Data"}
     except Exception:
         signals["Sahm_Rule"] = {"value": "N/A", "status": "Error"}
 

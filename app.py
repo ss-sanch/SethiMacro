@@ -148,8 +148,8 @@ def get_quant_signals():
 
 @app.get("/api/calendar-timeline")
 def get_macro_timeline():
-    """Builds the dynamic timeline with FRED Macro Data + Big Tech Earnings"""
-    import yfinance as yf # Ensure yfinance is available
+    """Builds the dynamic timeline with FRED Macro Data + Finviz Mega-Cap Earnings"""
+    import re # Built-in Python library for lightning-fast HTML scanning
     today = datetime.now()
     start_date = (today - timedelta(days=60)).strftime('%Y-%m-%d')
     end_date = (today + timedelta(days=60)).strftime('%Y-%m-%d')
@@ -161,6 +161,9 @@ def get_macro_timeline():
     
     try:
         session = requests.Session()
+        # Spoof a real browser to ensure Finviz lets us in
+        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"})
+        
         for rid in target_releases:
             url = f"https://api.stlouisfed.org/fred/release/dates?release_id={rid}&api_key={FRED_API_KEY}&file_type=json&include_release_dates_with_no_data=true&limit=1000"
             res = session.get(url, timeout=5)
@@ -176,27 +179,45 @@ def get_macro_timeline():
                         elif date_str >= today_str:
                             future.append(event)
                             
-        # 2. FETCH BIG TECH EARNINGS (Magnificent 7)
-        mag7 = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"]
-        for ticker in mag7:
+        # 2. FETCH TOP 10 MEGA-CAP EARNINGS (FINVIZ HTML SCRAPER)
+        mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "AVGO", "JPM"]
+        
+        for ticker in mega_caps:
             try:
-                tk = yf.Ticker(ticker)
-                cal = tk.calendar
-                # Using the same strict calendar extraction logic from SethiStock
-                if isinstance(cal, dict) and 'Earnings Date' in cal:
-                    raw_earnings = cal['Earnings Date']
-                    if isinstance(raw_earnings, list) and len(raw_earnings) > 0:
-                        earn_date = raw_earnings[0].strftime('%Y-%m-%d')
+                fv_url = f"https://finviz.com/quote.ashx?t={ticker}"
+                fv_res = session.get(fv_url, timeout=3)
+                
+                if fv_res.status_code == 200:
+                    # Scan the HTML table for the exact Earnings cell
+                    match = re.search(r'Earnings.*?<td[^>]*>.*?<b>(.*?)</b>', fv_res.text, re.IGNORECASE | re.DOTALL)
+                    if match:
+                        date_raw = match.group(1).strip() # e.g. "Aug 28 AMC"
+                        parts = date_raw.split(' ')
                         
-                        if start_date <= earn_date <= end_date:
-                            # We assign a custom string ID "EARNINGS" to differentiate from FRED integers
-                            event = {"release_id": "EARNINGS", "date": earn_date, "ticker": ticker}
-                            if earn_date < today_str: 
-                                past.append(event)
-                            elif earn_date >= today_str: 
-                                future.append(event)
+                        if len(parts) >= 2:
+                            # Convert Finviz "Aug 28" into mathematical YYYY-MM-DD
+                            month_str = parts[0][:3]
+                            day_str = parts[1][:2]
+                            
+                            d = datetime.strptime(f"{month_str} {day_str}", '%b %d')
+                            d = d.replace(year=today.year)
+                            
+                            # Handle end-of-year crossover wrap (e.g. tracking January earnings in December)
+                            if d.month == 12 and today.month <= 2:
+                                d = d.replace(year=today.year - 1)
+                            elif d.month <= 2 and today.month == 12:
+                                d = d.replace(year=today.year + 1)
+                                
+                            earn_date = d.strftime('%Y-%m-%d')
+                            
+                            if start_date <= earn_date <= end_date:
+                                event = {"release_id": "EARNINGS", "date": earn_date, "ticker": ticker}
+                                if earn_date < today_str:
+                                    past.append(event)
+                                else:
+                                    future.append(event)
             except Exception:
-                pass # Silently skip to protect the server if Yahoo blocks the request
+                pass # Silently skip if Finviz blocks a single ticker so the timeline doesn't crash
                             
         # 3. SORT & SLICE HYBRID ARRAYS
         past = sorted(past, key=lambda x: x["date"])

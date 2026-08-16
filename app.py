@@ -148,23 +148,20 @@ def get_quant_signals():
 
 @app.get("/api/calendar-timeline")
 def get_macro_timeline():
-    """Builds the dynamic timeline by strictly querying our 6 target releases"""
+    """Builds the dynamic timeline with FRED Macro Data + Big Tech Earnings"""
+    import yfinance as yf # Ensure yfinance is available
     today = datetime.now()
-    # Widen the net to 60 days to ensure we always capture enough past/future events
     start_date = (today - timedelta(days=60)).strftime('%Y-%m-%d')
     end_date = (today + timedelta(days=60)).strftime('%Y-%m-%d')
     
-    # EXACT FRED RELEASE IDs:
-    # 10=CPI, 50=NFP, 53=GDP, 13=Ind Prod, 9=Retail Sales, 46=PPI
+    # 1. FETCH FRED MACRO DATA
     target_releases = [10, 50, 53, 13, 9, 46]
-    
     past, future = [], []
     today_str = today.strftime('%Y-%m-%d')
     
     try:
         session = requests.Session()
         for rid in target_releases:
-            # Query the specific schedule for each release
             url = f"https://api.stlouisfed.org/fred/release/dates?release_id={rid}&api_key={FRED_API_KEY}&file_type=json&include_release_dates_with_no_data=true&limit=1000"
             res = session.get(url, timeout=5)
             
@@ -179,11 +176,32 @@ def get_macro_timeline():
                         elif date_str >= today_str:
                             future.append(event)
                             
-        # Force strict chronological sorting (oldest to newest)
+        # 2. FETCH BIG TECH EARNINGS (Magnificent 7)
+        mag7 = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"]
+        for ticker in mag7:
+            try:
+                tk = yf.Ticker(ticker)
+                cal = tk.calendar
+                # Using the same strict calendar extraction logic from SethiStock
+                if isinstance(cal, dict) and 'Earnings Date' in cal:
+                    raw_earnings = cal['Earnings Date']
+                    if isinstance(raw_earnings, list) and len(raw_earnings) > 0:
+                        earn_date = raw_earnings[0].strftime('%Y-%m-%d')
+                        
+                        if start_date <= earn_date <= end_date:
+                            # We assign a custom string ID "EARNINGS" to differentiate from FRED integers
+                            event = {"release_id": "EARNINGS", "date": earn_date, "ticker": ticker}
+                            if earn_date < today_str: 
+                                past.append(event)
+                            elif earn_date >= today_str: 
+                                future.append(event)
+            except Exception:
+                pass # Silently skip to protect the server if Yahoo blocks the request
+                            
+        # 3. SORT & SLICE HYBRID ARRAYS
         past = sorted(past, key=lambda x: x["date"])
         future = sorted(future, key=lambda x: x["date"])
         
-        # Grab exactly the 6 closest past events, and 6 closest future events
         return {"past": past[-6:], "future": future[:6]} 
     except Exception as e:
         print(f"Timeline fetch failed: {e}")

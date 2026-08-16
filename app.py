@@ -148,11 +148,13 @@ def get_quant_signals():
 
 @app.get("/api/calendar-timeline")
 def get_macro_timeline():
-    """Builds the dynamic timeline (Expanded to 30 Days to catch wider events)"""
+    """Builds the dynamic 60-day timeline"""
     today = datetime.now()
     start_date = (today - timedelta(days=30)).strftime('%Y-%m-%d')
     end_date = (today + timedelta(days=30)).strftime('%Y-%m-%d')
-    url = f"https://api.stlouisfed.org/fred/releases/dates?api_key={FRED_API_KEY}&file_type=json&realtime_start={start_date}&realtime_end={end_date}&limit=100"
+    
+    # FIX 1: Use 'early_date' and 'late_date' to grab future schedules, not vintage history
+    url = f"https://api.stlouisfed.org/fred/releases/dates?api_key={FRED_API_KEY}&file_type=json&early_date={start_date}&late_date={end_date}&limit=300"
     
     try:
         res = requests.get(url, timeout=5)
@@ -169,6 +171,10 @@ def get_macro_timeline():
                 else: 
                     future.append(event)
                     
+            # FIX 2: Force strict chronological sorting (oldest to newest)
+            past = sorted(past, key=lambda x: x["date"])
+            future = sorted(future, key=lambda x: x["date"])
+            
             return {"past": past[-5:], "future": future[:5]} 
     except Exception as e:
         print(f"Timeline fetch failed: {e}")

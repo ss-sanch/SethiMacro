@@ -149,7 +149,7 @@ def get_quant_signals():
 @app.get("/api/calendar-timeline")
 def get_macro_timeline():
     """Builds the dynamic timeline with FRED Macro Data + Finviz Mega-Cap Earnings"""
-    import re # Built-in Python library for lightning-fast HTML scanning
+    import re
     today = datetime.now()
     start_date = (today - timedelta(days=60)).strftime('%Y-%m-%d')
     end_date = (today + timedelta(days=60)).strftime('%Y-%m-%d')
@@ -161,7 +161,6 @@ def get_macro_timeline():
     
     try:
         session = requests.Session()
-        # Spoof a real browser to ensure Finviz lets us in
         session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"})
         
         for rid in target_releases:
@@ -188,36 +187,38 @@ def get_macro_timeline():
                 fv_res = session.get(fv_url, timeout=3)
                 
                 if fv_res.status_code == 200:
-                    # Scan the HTML table for the exact Earnings cell
-                    match = re.search(r'Earnings.*?<td[^>]*>.*?<b>(.*?)</b>', fv_res.text, re.IGNORECASE | re.DOTALL)
+                    # Bulletproof Search: Grabs everything in the cell next to 'Earnings'
+                    match = re.search(r'Earnings.*?<td[^>]*>(.*?)</td>', fv_res.text, re.IGNORECASE | re.DOTALL)
                     if match:
-                        date_raw = match.group(1).strip() # e.g. "Aug 28 AMC"
+                        # Aggressively strip out any stray HTML tags (like <b> or <span>)
+                        date_raw = re.sub(r'<[^>]+>', '', match.group(1)).strip()
                         parts = date_raw.split(' ')
                         
                         if len(parts) >= 2:
-                            # Convert Finviz "Aug 28" into mathematical YYYY-MM-DD
                             month_str = parts[0][:3]
-                            day_str = parts[1][:2]
+                            # Strip out any non-numeric characters just in case
+                            day_str = re.sub(r'\D', '', parts[1]) 
                             
-                            d = datetime.strptime(f"{month_str} {day_str}", '%b %d')
-                            d = d.replace(year=today.year)
-                            
-                            # Handle end-of-year crossover wrap (e.g. tracking January earnings in December)
-                            if d.month == 12 and today.month <= 2:
-                                d = d.replace(year=today.year - 1)
-                            elif d.month <= 2 and today.month == 12:
-                                d = d.replace(year=today.year + 1)
+                            if day_str.isdigit():
+                                d = datetime.strptime(f"{month_str} {day_str}", '%b %d')
+                                d = d.replace(year=today.year)
                                 
-                            earn_date = d.strftime('%Y-%m-%d')
-                            
-                            if start_date <= earn_date <= end_date:
-                                event = {"release_id": "EARNINGS", "date": earn_date, "ticker": ticker}
-                                if earn_date < today_str:
-                                    past.append(event)
-                                else:
-                                    future.append(event)
+                                # Handle Dec/Jan year crossover
+                                if d.month == 12 and today.month <= 2:
+                                    d = d.replace(year=today.year - 1)
+                                elif d.month <= 2 and today.month == 12:
+                                    d = d.replace(year=today.year + 1)
+                                    
+                                earn_date = d.strftime('%Y-%m-%d')
+                                
+                                if start_date <= earn_date <= end_date:
+                                    event = {"release_id": "EARNINGS", "date": earn_date, "ticker": ticker}
+                                    if earn_date < today_str:
+                                        past.append(event)
+                                    else:
+                                        future.append(event)
             except Exception:
-                pass # Silently skip if Finviz blocks a single ticker so the timeline doesn't crash
+                pass # Silently skip so timeline doesn't break
                             
         # 3. SORT & SLICE HYBRID ARRAYS
         past = sorted(past, key=lambda x: x["date"])

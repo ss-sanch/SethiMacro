@@ -148,35 +148,43 @@ def get_quant_signals():
 
 @app.get("/api/calendar-timeline")
 def get_macro_timeline():
-    """Builds the dynamic 60-day timeline"""
+    """Builds the dynamic timeline by strictly querying our 6 target releases"""
     today = datetime.now()
-    start_date = (today - timedelta(days=30)).strftime('%Y-%m-%d')
-    end_date = (today + timedelta(days=30)).strftime('%Y-%m-%d')
+    # Widen the net to 60 days to ensure we always capture enough past/future events
+    start_date = (today - timedelta(days=60)).strftime('%Y-%m-%d')
+    end_date = (today + timedelta(days=60)).strftime('%Y-%m-%d')
     
-    # FIX: Use realtime_start/end and force include_release_dates_with_no_data=true to see the future
-    url = f"https://api.stlouisfed.org/fred/releases/dates?api_key={FRED_API_KEY}&file_type=json&realtime_start={start_date}&realtime_end={end_date}&include_release_dates_with_no_data=true&limit=300"
+    # EXACT FRED RELEASE IDs:
+    # 10=CPI, 50=NFP, 53=GDP, 13=Ind Prod, 9=Retail Sales, 46=PPI
+    target_releases = [10, 50, 53, 13, 9, 46]
+    
+    past, future = [], []
+    today_str = today.strftime('%Y-%m-%d')
     
     try:
-        res = requests.get(url, timeout=5)
-        if res.status_code == 200:
-            dates = res.json().get("release_dates", [])
-            major_releases = [d for d in dates if d.get("release_id") in [10, 50, 46, 21, 9, 18]]
+        session = requests.Session()
+        for rid in target_releases:
+            # Query the specific schedule for each release
+            url = f"https://api.stlouisfed.org/fred/release/dates?release_id={rid}&api_key={FRED_API_KEY}&file_type=json&include_release_dates_with_no_data=true&limit=1000"
+            res = session.get(url, timeout=5)
             
-            past, future = [], []
-            today_str = today.strftime('%Y-%m-%d')
-            
-            for event in major_releases:
-                if event.get("date") < today_str: 
-                    past.append(event)
-                else: 
-                    future.append(event)
-                    
-            # Force strict chronological sorting (oldest to newest)
-            past = sorted(past, key=lambda x: x["date"])
-            future = sorted(future, key=lambda x: x["date"])
-            
-            # Grabbing 6 events per side for a wider endless illusion
-            return {"past": past[-6:], "future": future[:6]} 
+            if res.status_code == 200:
+                dates = res.json().get("release_dates", [])
+                for d in dates:
+                    date_str = d.get("date")
+                    if start_date <= date_str <= end_date:
+                        event = {"release_id": rid, "date": date_str}
+                        if date_str < today_str:
+                            past.append(event)
+                        elif date_str >= today_str:
+                            future.append(event)
+                            
+        # Force strict chronological sorting (oldest to newest)
+        past = sorted(past, key=lambda x: x["date"])
+        future = sorted(future, key=lambda x: x["date"])
+        
+        # Grab exactly the 6 closest past events, and 6 closest future events
+        return {"past": past[-6:], "future": future[:6]} 
     except Exception as e:
         print(f"Timeline fetch failed: {e}")
     return {"past": [], "future": []}

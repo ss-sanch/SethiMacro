@@ -50,28 +50,21 @@ def read_root():
 def get_pillar_jobs():
     try:
         # 1. GLOBAL UNEMPLOYMENT (Force 60 months / 5 Years for perfect alignment)
-        # US Unemployment Rate
         us_u = get_fred_data("UNRATE", limit=60)
-        
-        # UK Harmonized Unemployment Rate: All Persons (Monthly)
         uk_u = get_fred_data("LRHUTTTTGBM156S", limit=60)
-        
-        # Euro Area Harmonized Unemployment Rate: All Persons (Monthly)
         eu_u = get_fred_data("LRHUTTTTEZM156S", limit=60)
         
         # 2. US LABOR TIGHTNESS (Force 24 months / 2 Years for recent momentum)
-        # JOLTS Total Job Openings
         jolts = get_fred_data("JTSJOL", limit=24) 
-        
-        # Nonfarm Payrolls (using units='chg' to get the monthly change automatically)
         nfp = get_fred_data("PAYEMS", limit=24, units="chg") 
         
+        # CRITICAL FIX: These exact keys match your sethimacro.html JavaScript!
         return {
-            "Unemployment_US": us_u,
-            "Unemployment_UK": uk_u,
-            "Unemployment_EU": eu_u,
-            "JOLTS": jolts,
-            "NFP": nfp
+            "US_Unemp": us_u,
+            "UK_Unemp": uk_u,
+            "EU_Unemp": eu_u,
+            "US_JOLTS": jolts,
+            "US_NFP": nfp
         }
     except Exception as e:
         print(f"Error in pillar-jobs: {e}")

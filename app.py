@@ -76,25 +76,29 @@ def get_pillar_jobs():
 @app.get("/api/pillar-rates")
 def get_pillar_rates():
     try:
-        # 1. CENTRAL BANK RATES (Strict 60-Month Alignment)
+        # 1. CENTRAL BANK RATES (Synced to Monthly)
         fed = get_fred_data("FEDFUNDS", limit=60)
-        
-        # PRO-TRICK: ECBDFR is a Daily series. We inject '&frequency=m' into 
-        # the 'units' parameter to force the FRED API to convert it to Monthly averages!
         ecb = get_fred_data("ECBDFR", limit=60, units="lin&frequency=m")
         
-        # 2. GLOBAL SOVEREIGN SPREADS (Strict 60-Month Alignment)
-        # CRITICAL FIX: Swapped 'DGS10' (Daily) to 'GS10' (Monthly)
+        # 2. SOVEREIGN SPREADS
         us_10y = get_fred_data("GS10", limit=60) 
         uk_10y = get_fred_data("IRLTLT01GBM156N", limit=60)
         ger_10y = get_fred_data("IRLTLT01DEM156N", limit=60)
+
+        # 3. ADVANCED INFLATION TRACKER (The Restored Graph)
+        cpi = get_fred_data("CPIAUCSL", limit=60, units="pc1") # pc1 = YoY %
+        pce = get_fred_data("PCEPILFE", limit=60, units="pc1")
+        ppi = get_fred_data("WPSFD4131", limit=60, units="pc1")
+
+        # 4. REAL COST OF CAPITAL (The New Pro Quant Chart)
+        breakeven = get_fred_data("T10YIE", limit=60, units="lin&frequency=m") # Inflation Expectations
+        real_yield = get_fred_data("DFII10", limit=60, units="lin&frequency=m") # TIPS Real Yield
         
         return {
-            "Fed_Funds": fed,
-            "ECB_Rate": ecb,
-            "US_10Y": us_10y,
-            "UK_10Y": uk_10y,
-            "GER_10Y": ger_10y
+            "Fed_Funds": fed, "ECB_Rate": ecb,
+            "US_10Y": us_10y, "UK_10Y": uk_10y, "GER_10Y": ger_10y,
+            "CPI": cpi, "PCE": pce, "PPI": ppi,
+            "Breakeven": breakeven, "Real_Yield": real_yield
         }
     except Exception as e:
         print(f"Error in pillar-rates: {e}")

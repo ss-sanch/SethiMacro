@@ -74,18 +74,31 @@ def get_pillar_jobs():
         return {}
 
 @app.get("/api/pillar-rates")
-def get_rates_data():
-    return {
-        "US_CPI": get_fred_data("CPIAUCSL", limit=12, units="pc1"),
-        "US_Core_PCE": get_fred_data("PCEPILFE", limit=12, units="pc1"),
-        "US_PPI": get_fred_data("PPIACO", limit=12, units="pc1"),
-        "UK_CPI": get_fred_data("CPALTT01GBM657N", limit=12), 
-        "Fed_Funds": get_fred_data("FEDFUNDS", limit=24),
-        "ECB_Rate": get_fred_data("ECBDFR", limit=24),
-        "US_10Y": get_fred_data("DGS10", limit=30),
-        "UK_10Y": get_fred_data("IRLTLT01GBM156N", limit=30),
-        "GER_10Y": get_fred_data("IRLTLT01DEM156N", limit=30)
-    }
+def get_pillar_rates():
+    try:
+        # 1. CENTRAL BANK RATES (Strict 60-Month Alignment)
+        fed = get_fred_data("FEDFUNDS", limit=60)
+        
+        # PRO-TRICK: ECBDFR is a Daily series. We inject '&frequency=m' into 
+        # the 'units' parameter to force the FRED API to convert it to Monthly averages!
+        ecb = get_fred_data("ECBDFR", limit=60, units="lin&frequency=m")
+        
+        # 2. GLOBAL SOVEREIGN SPREADS (Strict 60-Month Alignment)
+        # CRITICAL FIX: Swapped 'DGS10' (Daily) to 'GS10' (Monthly)
+        us_10y = get_fred_data("GS10", limit=60) 
+        uk_10y = get_fred_data("IRLTLT01GBM156N", limit=60)
+        ger_10y = get_fred_data("IRLTLT01DEM156N", limit=60)
+        
+        return {
+            "Fed_Funds": fed,
+            "ECB_Rate": ecb,
+            "US_10Y": us_10y,
+            "UK_10Y": uk_10y,
+            "GER_10Y": ger_10y
+        }
+    except Exception as e:
+        print(f"Error in pillar-rates: {e}")
+        return {}
 
 @app.get("/api/pillar-gdp")
 def get_gdp_data():

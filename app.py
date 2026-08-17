@@ -148,20 +148,25 @@ def get_quant_signals():
 
 @app.get("/api/calendar-timeline")
 def get_macro_timeline():
-    """Builds the dynamic timeline with FRED Macro Data + Finviz Mega-Cap Earnings"""
-    import re
+    """Builds the dynamic timeline with FRED Macro Data + Native yfinance Mega-Cap Earnings"""
+    import yfinance as yf
+    from datetime import datetime, timedelta
+    import requests
+    import os
+
     today = datetime.now()
     start_date = (today - timedelta(days=60)).strftime('%Y-%m-%d')
     end_date = (today + timedelta(days=60)).strftime('%Y-%m-%d')
     
-    # 1. FETCH FRED MACRO DATA
     target_releases = [10, 50, 53, 13, 9, 46]
     past, future = [], []
     today_str = today.strftime('%Y-%m-%d')
     
+    # 1. FETCH FRED MACRO DATA
     try:
+        FRED_API_KEY = os.getenv("FRED_API_KEY")
         session = requests.Session()
-        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"})
+        session.headers.update({"User-Agent": "Mozilla/5.0"})
         
         for rid in target_releases:
             url = f"https://api.stlouisfed.org/fred/release/dates?release_id={rid}&api_key={FRED_API_KEY}&file_type=json&include_release_dates_with_no_data=true&limit=1000"
@@ -177,54 +182,34 @@ def get_macro_timeline():
                             past.append(event)
                         elif date_str >= today_str:
                             future.append(event)
-                            
-        # 2. FETCH TOP 10 MEGA-CAP EARNINGS (FINVIZ HTML SCRAPER)
-        mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "AVGO", "JPM"]
-        
-        for ticker in mega_caps:
-            try:
-                fv_url = f"https://finviz.com/quote.ashx?t={ticker}"
-                fv_res = session.get(fv_url, timeout=3)
-                
-                if fv_res.status_code == 200:
-                    # Bulletproof Search: Grabs everything in the cell next to 'Earnings'
-                    match = re.search(r'Earnings.*?<td[^>]*>(.*?)</td>', fv_res.text, re.IGNORECASE | re.DOTALL)
-                    if match:
-                        # Aggressively strip out any stray HTML tags (like <b> or <span>)
-                        date_raw = re.sub(r'<[^>]+>', '', match.group(1)).strip()
-                        parts = date_raw.split(' ')
-                        
-                        if len(parts) >= 2:
-                            month_str = parts[0][:3]
-                            # Strip out any non-numeric characters just in case
-                            day_str = re.sub(r'\D', '', parts[1]) 
-                            
-                            if day_str.isdigit():
-                                d = datetime.strptime(f"{month_str} {day_str}", '%b %d')
-                                d = d.replace(year=today.year)
-                                
-                                # Handle Dec/Jan year crossover
-                                if d.month == 12 and today.month <= 2:
-                                    d = d.replace(year=today.year - 1)
-                                elif d.month <= 2 and today.month == 12:
-                                    d = d.replace(year=today.year + 1)
-                                    
-                                earn_date = d.strftime('%Y-%m-%d')
-                                
-                                if start_date <= earn_date <= end_date:
-                                    event = {"release_id": "EARNINGS", "date": earn_date, "ticker": ticker}
-                                    if earn_date < today_str:
-                                        past.append(event)
-                                    else:
-                                        future.append(event)
-            except Exception:
-                pass # Silently skip so timeline doesn't break
-                            
-        # 3. SORT & SLICE HYBRID ARRAYS
-        past = sorted(past, key=lambda x: x["date"])
-        future = sorted(future, key=lambda x: x["date"])
-        
-        return {"past": past[-6:], "future": future[:6]} 
     except Exception as e:
-        print(f"Timeline fetch failed: {e}")
-    return {"past": [], "future": []}
+        print(f"FRED fetch failed: {e}")
+
+    # 2. FETCH TOP 10 MEGA-CAP EARNINGS (Native yfinance)
+    mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "AVGO", "JPM"]
+    
+    for ticker in mega_caps:
+        try:
+            stock = yf.Ticker(ticker)
+            cal = stock.calendar
+            
+            # Using the exact proven dictionary extraction from SethiStock
+            if isinstance(cal, dict) and 'Earnings Date' in cal:
+                raw_earnings = cal['Earnings Date']
+                if isinstance(raw_earnings, list) and len(raw_earnings) > 0:
+                    earn_date = raw_earnings[0].strftime('%Y-%m-%d')
+                    
+                    if start_date <= earn_date <= end_date:
+                        event = {"release_id": "EARNINGS", "date": earn_date, "ticker": ticker}
+                        if earn_date < today_str:
+                            past.append(event)
+                        else:
+                            future.append(event)
+        except Exception:
+            pass 
+                            
+    # 3. SORT & SLICE HYBRID ARRAYS
+    past = sorted(past, key=lambda x: x["date"])
+    future = sorted(future, key=lambda x: x["date"])
+    
+    return {"past": past[-6:], "future": future[:6]}

@@ -49,16 +49,16 @@ def read_root():
 @app.get("/api/pillar-jobs")
 def get_pillar_jobs():
     try:
-        # 1. GLOBAL UNEMPLOYMENT (Force 60 months / 5 Years for perfect alignment)
+        # 1. GLOBAL UNEMPLOYMENT (Force 60 months / 5 Years)
         us_u = get_fred_data("UNRATE", limit=60)
         uk_u = get_fred_data("LRHUTTTTGBM156S", limit=60)
-        eu_u = get_fred_data("LRHUTTTTEZM156S", limit=60)
+        # FIX: Swapped deprecated EA19 series to Germany (EU Proxy) for live 2026 data
+        eu_u = get_fred_data("LRHUTTTTDEM156S", limit=60) 
         
-        # 2. US LABOR TIGHTNESS (Force 24 months / 2 Years for recent momentum)
+        # 2. US LABOR TIGHTNESS
         jolts = get_fred_data("JTSJOL", limit=24) 
         nfp = get_fred_data("PAYEMS", limit=24, units="chg") 
         
-        # CRITICAL FIX: These exact keys match your sethimacro.html JavaScript!
         return {
             "US_Unemp": us_u,
             "UK_Unemp": uk_u,

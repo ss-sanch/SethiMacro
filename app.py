@@ -148,7 +148,7 @@ def get_quant_signals():
 
 @app.get("/api/calendar-timeline")
 def get_macro_timeline():
-    """Builds the dynamic timeline with FRED Macro Data + Native yfinance Mega-Cap Earnings"""
+    """Builds the dynamic timeline with Global Macro Data + International Mega-Cap Earnings"""
     import yfinance as yf
     from datetime import datetime, timedelta
     import requests
@@ -158,11 +158,14 @@ def get_macro_timeline():
     start_date = (today - timedelta(days=60)).strftime('%Y-%m-%d')
     end_date = (today + timedelta(days=60)).strftime('%Y-%m-%d')
     
-    target_releases = [10, 50, 53, 13, 9, 46]
+    # Expanded FRED Releases: 
+    # US (10=CPI, 50=NFP, 53=GDP, 13=Ind Prod, 9=Retail, 46=PPI)
+    # Global (322=ECB Rate, 295=BOE Rate, 254=EU HICP, 356=UK CPI, 172=China GDP)
+    target_releases = [10, 50, 53, 13, 9, 46, 322, 295, 254, 356, 172]
     past, future = [], []
     today_str = today.strftime('%Y-%m-%d')
     
-    # 1. FETCH FRED MACRO DATA
+    # 1. FETCH GLOBAL MACRO DATA
     try:
         FRED_API_KEY = os.getenv("FRED_API_KEY")
         session = requests.Session()
@@ -185,7 +188,7 @@ def get_macro_timeline():
     except Exception as e:
         print(f"FRED fetch failed: {e}")
 
-    # 2. FETCH TOP 10 MEGA-CAP EARNINGS (Native yfinance)
+    # 2. FETCH GLOBAL MEGA-CAP EARNINGS (US + Top International ADRs)
     mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "AVGO", "JPM", "TSM", "MU", "SPCX", "CRM", "NFLX"]
     
     for ticker in mega_caps:
@@ -193,7 +196,6 @@ def get_macro_timeline():
             stock = yf.Ticker(ticker)
             cal = stock.calendar
             
-            # Using the exact proven dictionary extraction from SethiStock
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 raw_earnings = cal['Earnings Date']
                 if isinstance(raw_earnings, list) and len(raw_earnings) > 0:
@@ -209,7 +211,8 @@ def get_macro_timeline():
             pass 
                             
     # 3. SORT & SLICE HYBRID ARRAYS
+    # We are increasing the slice to 8 events per side to accommodate the denser global calendar
     past = sorted(past, key=lambda x: x["date"])
     future = sorted(future, key=lambda x: x["date"])
     
-    return {"past": past[-6:], "future": future[:6]}
+    return {"past": past[-8:], "future": future[:8]}

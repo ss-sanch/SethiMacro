@@ -186,7 +186,7 @@ def get_macro_timeline():
         print(f"FRED fetch failed: {e}")
 
     # 2. FETCH TOP 10 MEGA-CAP EARNINGS (Native yfinance)
-    mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "AVGO", "JPM"]
+    mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "AVGO", "JPM", "TSM", "MU", "SPCX", "CRM", "NFLX"]
     
     for ticker in mega_caps:
         try:

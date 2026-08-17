@@ -47,14 +47,35 @@ def read_root():
     return {"status": "SethiMacro Global Quant Engine Online"}
 
 @app.get("/api/pillar-jobs")
-def get_jobs_data():
-    return {
-        "US_NFP": get_fred_data("PAYEMS", limit=24, units="ch1"),
-        "US_JOLTS": get_fred_data("JTSJOL", limit=24),
-        "US_Unemp": get_fred_data("UNRATE", limit=12),
-        "UK_Unemp": get_fred_data("LRHUTTTTGBA156N", limit=5), # Annual representation
-        "EU_Unemp": get_fred_data("LRUN64TTEZA156S", limit=5)  # Annual representation
-    }
+def get_pillar_jobs():
+    try:
+        # 1. GLOBAL UNEMPLOYMENT (Force 60 months / 5 Years for perfect alignment)
+        # US Unemployment Rate
+        us_u = get_fred_data("UNRATE", limit=60)
+        
+        # UK Harmonized Unemployment Rate: All Persons (Monthly)
+        uk_u = get_fred_data("LRHUTTTTGBM156S", limit=60)
+        
+        # Euro Area Harmonized Unemployment Rate: All Persons (Monthly)
+        eu_u = get_fred_data("LRHUTTTTEZM156S", limit=60)
+        
+        # 2. US LABOR TIGHTNESS (Force 24 months / 2 Years for recent momentum)
+        # JOLTS Total Job Openings
+        jolts = get_fred_data("JTSJOL", limit=24) 
+        
+        # Nonfarm Payrolls (using units='chg' to get the monthly change automatically)
+        nfp = get_fred_data("PAYEMS", limit=24, units="chg") 
+        
+        return {
+            "Unemployment_US": us_u,
+            "Unemployment_UK": uk_u,
+            "Unemployment_EU": eu_u,
+            "JOLTS": jolts,
+            "NFP": nfp
+        }
+    except Exception as e:
+        print(f"Error in pillar-jobs: {e}")
+        return {}
 
 @app.get("/api/pillar-rates")
 def get_rates_data():

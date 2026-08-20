@@ -381,20 +381,23 @@ def get_macro_ai_analysis():
             return {"error": "API Key Missing"}
             
         genai.configure(api_key=GOOGLE_API_KEY)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-3.7-flash')
 
         # 2. The Institutional Prompt
         prompt = """
-        You are a Chief Economist at a top-tier hedge fund. Provide a concise, highly professional daily macroeconomic briefing.
+        You are a Chief Economist at a top-tier hedge fund. Provide a highly professional, up-to-date daily macroeconomic briefing for today's trading desk. 
+        You MUST base your analysis on current, real-time market data and headlines from verified sources such as the Financial Times, Wall Street Journal, CNBC, Bloomberg, and Yahoo Finance. 
+
+        Your analysis must specifically target the exact quantitative metrics tracked in our proprietary macro terminal.
         
-        You MUST return your response STRICTLY as a JSON object with the following exactly named keys. Do NOT use markdown code blocks like ```json. Just return the raw JSON dictionary.
+        You MUST return your response STRICTLY as a JSON object with the following exactly named keys. Do NOT use markdown code blocks like ```json. Just return the raw JSON string.
         
         {
-            "executive_summary": "A 3-sentence overarching summary of current global macroeconomic risk, central bank posturing, and the broad market regime.",
-            "jobs": "A 2-sentence summary of the current US and global labor market tightness.",
-            "inflation": "A 2-sentence summary of current inflation dynamics and sovereign yield curve behavior.",
-            "gdp": "A 2-sentence summary of global economic growth and industrial output.",
-            "fx": "A 2-sentence summary of the US Dollar's strength and the Japanese Yen carry trade."
+            "executive_summary": "A 3-sentence overarching summary of today's global macroeconomic risk, central bank posturing, and the broad market regime based on today's financial news.",
+            "jobs": "A 2-sentence summary focusing specifically on current US Unemployment trends, labor market tightness (JOLTS), Nonfarm Payrolls momentum, and wage growth (YoY) dynamics.",
+            "inflation": "A 2-sentence summary analyzing current US inflation (CPI/PCE/PPI) trends, 10Y Sovereign Yield Spreads (US vs UK vs Germany), and Fed vs ECB rate cut/hike policies.",
+            "gdp": "A 2-sentence summary evaluating Global Real GDP growth divergence, US Industrial Production, Retail Sales consumer resilience, and Consumer Sentiment.",
+            "fx": "A 2-sentence summary detailing the current strength of the US Dollar Index (DXY), EUR/USD (Fiber), GBP/USD (Cable), and specifically the USD/JPY (BOJ policy & Yen Carry Trade) dynamics."
         }
         """
 

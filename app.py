@@ -401,7 +401,7 @@ def get_macro_ai_analysis():
 
         # 3. Generate using the bleeding-edge Gemini 2.0 Flash model
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-3.6-flash',
             contents=prompt,
         )
         text_response = response.text.strip()

@@ -300,9 +300,16 @@ def get_macro_timeline():
     # 2. FETCH GLOBAL MEGA-CAP EARNINGS (US + Top International ADRs)
     mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "AVGO", "JPM", "TSM", "MU", "SPCX", "CRM", "NFLX"]
     
+    # --- YAHOO FINANCE FIREWALL BYPASS ---
+    safe_session = requests.Session()
+    safe_session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    })
+    
     for ticker in mega_caps:
         try:
-            stock = yf.Ticker(ticker)
+            # Injecting the forged session here
+            stock = yf.Ticker(ticker, session=safe_session)
             cal = stock.calendar
             
             if isinstance(cal, dict) and 'Earnings Date' in cal:
@@ -317,7 +324,7 @@ def get_macro_timeline():
                         else:
                             future.append(event)
         except Exception:
-            pass 
+            pass
                             
     # 3. SORT & SLICE HYBRID ARRAYS
     # We are increasing the slice to 8 events per side to accommodate the denser global calendar

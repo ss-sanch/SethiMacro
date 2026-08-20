@@ -298,7 +298,7 @@ def get_macro_timeline():
         print(f"FRED fetch failed: {e}")
 
     # 2. FETCH GLOBAL MEGA-CAP EARNINGS (US + Top International ADRs)
-    mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "AVGO", "JPM", "TSM", "MU", "SPCX", "CRM", "NFLX"]
+    mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "AVGO", "JPM", "TSM", "MU", "CRM", "NFLX"]
     
     # --- YAHOO FINANCE FIREWALL BYPASS ---
     safe_session = requests.Session()
@@ -308,23 +308,37 @@ def get_macro_timeline():
     
     for ticker in mega_caps:
         try:
-            # Injecting the forged session here
             stock = yf.Ticker(ticker, session=safe_session)
             cal = stock.calendar
             
+            earn_date = None
+            
+            # SCENARIO A: yfinance returns a Python Dictionary
             if isinstance(cal, dict) and 'Earnings Date' in cal:
                 raw_earnings = cal['Earnings Date']
                 if isinstance(raw_earnings, list) and len(raw_earnings) > 0:
-                    earn_date = raw_earnings[0].strftime('%Y-%m-%d')
+                    earn_date = raw_earnings[0]
                     
-                    if start_date <= earn_date <= end_date:
-                        event = {"release_id": "EARNINGS", "date": earn_date, "ticker": ticker}
-                        if earn_date < today_str:
-                            past.append(event)
-                        else:
-                            future.append(event)
-        except Exception:
-            pass
+            # SCENARIO B: yfinance returns a Pandas DataFrame
+            elif hasattr(cal, 'iloc') and 'Earnings Date' in cal.index:
+                earn_date = cal.loc['Earnings Date'].iloc[0]
+                
+            # If we successfully captured a date, format it and add it to the timeline
+            if earn_date:
+                # Safely convert pandas Timestamp or datetime object to a string
+                earn_date_str = earn_date.strftime('%Y-%m-%d') if hasattr(earn_date, 'strftime') else str(earn_date)[:10]
+                
+                if start_date <= earn_date_str <= end_date:
+                    event = {"release_id": "EARNINGS", "date": earn_date_str, "ticker": ticker}
+                    if earn_date_str < today_str:
+                        past.append(event)
+                    else:
+                        future.append(event)
+            else:
+                print(f"[{ticker}] Earnings data structure unreadable: {cal}")
+                
+        except Exception as e:
+            print(f"[{ticker}] Failed to fetch earnings: {e}")
                             
     # 3. SORT & SLICE HYBRID ARRAYS
     # We are increasing the slice to 8 events per side to accommodate the denser global calendar

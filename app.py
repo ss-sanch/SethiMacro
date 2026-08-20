@@ -4,6 +4,7 @@ import requests
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv, find_dotenv
+import time
 
 # Aggressively load the secure vault
 load_dotenv(find_dotenv())
@@ -23,7 +24,7 @@ app.add_middleware(
 # --- CORE DATA FETCHING ENGINE ---
 # ==========================================
 
-def get_fred_data(series_id, limit=12, units="lin"):
+def get_fred_data_cached(series_id, limit=12, units="lin"):
     url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json&limit={limit}&sort_order=desc&units={units}"
     try:
         response = requests.get(url, timeout=5)
@@ -39,6 +40,35 @@ def get_fred_data(series_id, limit=12, units="lin"):
     return []
 
 # ==========================================
+# THE ENTERPRISE RAM CACHE ENGINE
+# ==========================================
+MACRO_CACHE = {}
+CACHE_EXPIRE_SECONDS = 43200 # 12 Hours (FRED only updates data daily/monthly anyway)
+
+def get_fred_data_cached_cached(series_id, limit=60, units="lin"):
+    """
+    Checks the RAM cache first. If the data is missing or older than 12 hours,
+    it fetches fresh data from FRED and saves it to RAM.
+    """
+    cache_key = f"{series_id}_{limit}_{units}"
+    current_time = time.time()
+    
+    # 1. If we have the data and it's fresh, return it instantly (0.001 seconds)
+    if cache_key in MACRO_CACHE:
+        cached_time, cached_data = MACRO_CACHE[cache_key]
+        if current_time - cached_time < CACHE_EXPIRE_SECONDS:
+            return cached_data
+            
+    # 2. If it's missing or old, fetch it from FRED (1-2 seconds)
+    print(f"Cache miss or expired for {series_id}. Fetching fresh data...")
+    fresh_data = get_fred_data_cached(series_id, limit=limit, units=units)
+    
+    # 3. Save to RAM and return
+    if fresh_data: # Only cache if the fetch was successful
+        MACRO_CACHE[cache_key] = (current_time, fresh_data)
+        
+    return fresh_data
+# ==========================================
 # --- GLOBAL MACRO PILLARS ---
 # ==========================================
 
@@ -50,16 +80,16 @@ def read_root():
 def get_pillar_jobs():
     try:
         # 1. GLOBAL UNEMPLOYMENT
-        us_u = get_fred_data("UNRATE", limit=60)
-        uk_u = get_fred_data("LRHUTTTTGBM156S", limit=60)
-        eu_u = get_fred_data("LRHUTTTTDEM156S", limit=60) 
+        us_u = get_fred_data_cached_cached("UNRATE", limit=60)
+        uk_u = get_fred_data_cached_cached("LRHUTTTTGBM156S", limit=60)
+        eu_u = get_fred_data_cached_cached("LRHUTTTTDEM156S", limit=60) 
         
         # 2. US LABOR TIGHTNESS
-        jolts = get_fred_data("JTSJOL", limit=24) 
-        nfp = get_fred_data("PAYEMS", limit=24, units="chg") 
+        jolts = get_fred_data_cached("JTSJOL", limit=24) 
+        nfp = get_fred_data_cached("PAYEMS", limit=24, units="chg") 
         
         # 3. WAGE INFLATION (New Metric: 5 Years YoY %)
-        wages = get_fred_data("CES0500000003", limit=60, units="pc1")
+        wages = get_fred_data_cached("CES0500000003", limit=60, units="pc1")
         
         return {
             "US_Unemp": us_u,
@@ -77,22 +107,22 @@ def get_pillar_jobs():
 def get_pillar_rates():
     try:
         # 1. CENTRAL BANK RATES (Synced to Monthly)
-        fed = get_fred_data("FEDFUNDS", limit=60)
-        ecb = get_fred_data("ECBDFR", limit=60, units="lin&frequency=m")
+        fed = get_fred_data_cached("FEDFUNDS", limit=60)
+        ecb = get_fred_data_cached("ECBDFR", limit=60, units="lin&frequency=m")
         
         # 2. SOVEREIGN SPREADS
-        us_10y = get_fred_data("GS10", limit=60) 
-        uk_10y = get_fred_data("IRLTLT01GBM156N", limit=60)
-        ger_10y = get_fred_data("IRLTLT01DEM156N", limit=60)
+        us_10y = get_fred_data_cached("GS10", limit=60) 
+        uk_10y = get_fred_data_cached("IRLTLT01GBM156N", limit=60)
+        ger_10y = get_fred_data_cached("IRLTLT01DEM156N", limit=60)
 
         # 3. ADVANCED INFLATION TRACKER (The Restored Graph)
-        cpi = get_fred_data("CPIAUCSL", limit=60, units="pc1") # pc1 = YoY %
-        pce = get_fred_data("PCEPILFE", limit=60, units="pc1")
-        ppi = get_fred_data("WPSFD4131", limit=60, units="pc1")
+        cpi = get_fred_data_cached("CPIAUCSL", limit=60, units="pc1") # pc1 = YoY %
+        pce = get_fred_data_cached("PCEPILFE", limit=60, units="pc1")
+        ppi = get_fred_data_cached("WPSFD4131", limit=60, units="pc1")
 
         # 4. REAL COST OF CAPITAL (The New Pro Quant Chart)
-        breakeven = get_fred_data("T10YIE", limit=60, units="lin&frequency=m") # Inflation Expectations
-        real_yield = get_fred_data("DFII10", limit=60, units="lin&frequency=m") # TIPS Real Yield
+        breakeven = get_fred_data_cached("T10YIE", limit=60, units="lin&frequency=m") # Inflation Expectations
+        real_yield = get_fred_data_cached("DFII10", limit=60, units="lin&frequency=m") # TIPS Real Yield
         
         return {
             "Fed_Funds": fed, "ECB_Rate": ecb,
@@ -108,18 +138,18 @@ def get_pillar_rates():
 def get_pillar_gdp():
     try:
         # 1. Global Real GDP (Quarterly)
-        us_gdp = get_fred_data("A191RL1Q225SBEA", limit=20) 
-        uk_gdp = get_fred_data("UKNGDP", limit=20) # Keep whatever UK/EU tickers you currently use
-        eu_gdp = get_fred_data("CLVMEURSCAB1GQEA19", limit=20) 
+        us_gdp = get_fred_data_cached("A191RL1Q225SBEA", limit=20) 
+        uk_gdp = get_fred_data_cached("UKNGDP", limit=20) # Keep whatever UK/EU tickers you currently use
+        eu_gdp = get_fred_data_cached("CLVMEURSCAB1GQEA19", limit=20) 
         
         # 2. US Industrial Production
-        indpro = get_fred_data("INDPRO", limit=60, units="pc1") # YoY %
+        indpro = get_fred_data_cached("INDPRO", limit=60, units="pc1") # YoY %
         
         # 3. US Retail Sales (The Consumer Engine - YoY %)
-        retail = get_fred_data("RSAFS", limit=60, units="pc1")
+        retail = get_fred_data_cached("RSAFS", limit=60, units="pc1")
         
         # 4. Consumer Sentiment (Leading Indicator)
-        sentiment = get_fred_data("UMCSENT", limit=60)
+        sentiment = get_fred_data_cached("UMCSENT", limit=60)
         
         return {
             "US_GDP": us_gdp, "UK_GDP": uk_gdp, "EU_GDP": eu_gdp,
@@ -135,10 +165,10 @@ def get_pillar_gdp():
 def get_fx_data():
     # Pulling 250 days of data for rich YTD currency charts
     return {
-        "DXY": get_fred_data("DTWEXBGS", limit=250),
-        "GBP_USD": get_fred_data("DEXUSUK", limit=250),
-        "EUR_USD": get_fred_data("DEXUSEU", limit=250),
-        "USD_CNY": get_fred_data("DEXCHUS", limit=250)
+        "DXY": get_fred_data_cached("DTWEXBGS", limit=250),
+        "GBP_USD": get_fred_data_cached("DEXUSUK", limit=250),
+        "EUR_USD": get_fred_data_cached("DEXUSEU", limit=250),
+        "USD_CNY": get_fred_data_cached("DEXCHUS", limit=250)
     }
 
 @app.get("/api/quant-signals")
@@ -147,11 +177,11 @@ def get_quant_signals():
     
     # 1. Yield Spread
     try:
-        y10 = get_fred_data("DGS10", limit=1)[0]["value"]
-        y2 = get_fred_data("DGS2", limit=1)[0]["value"]
+        y10 = get_fred_data_cached("DGS10", limit=1)[0]["value"]
+        y2 = get_fred_data_cached("DGS2", limit=1)[0]["value"]
         spread = round(y10 - y2, 2)
         
-        uk10 = get_fred_data("IRLTLT01GBM156N", limit=1)
+        uk10 = get_fred_data_cached("IRLTLT01GBM156N", limit=1)
         uk10_val = round(uk10[0]["value"], 2) if uk10 else "N/A"
         
         signals["Yield_Spread"] = {"us_spread": spread, "status": "INVERTED" if spread < 0 else "NORMAL", "us_10y": y10, "uk_10y": uk10_val}
@@ -160,7 +190,7 @@ def get_quant_signals():
 
     # 2. Sahm Rule
     try:
-        unrate = get_fred_data("UNRATE", limit=15)
+        unrate = get_fred_data_cached("UNRATE", limit=15)
         if len(unrate) >= 12:
             rates = [x["value"] for x in unrate][::-1]
             three_mo_avgs = [sum(rates[i:i+3]) / 3 for i in range(len(rates) - 2)]
@@ -173,9 +203,9 @@ def get_quant_signals():
 
     # 3. Taylor Rule
     try:
-        core_pce = get_fred_data("PCEPILFE", limit=1, units="pc1")[0]["value"]
-        unemp = get_fred_data("UNRATE", limit=1)[0]["value"]
-        actual_fed_funds = get_fred_data("FEDFUNDS", limit=1)[0]["value"]
+        core_pce = get_fred_data_cached("PCEPILFE", limit=1, units="pc1")[0]["value"]
+        unemp = get_fred_data_cached("UNRATE", limit=1)[0]["value"]
+        actual_fed_funds = get_fred_data_cached("FEDFUNDS", limit=1)[0]["value"]
         
         target_rate = round(core_pce + 2.0 + (0.5 * (core_pce - 2.0)) - (1.0 * (unemp - 4.0)), 2)
         gap = round(actual_fed_funds - target_rate, 2)
@@ -187,7 +217,7 @@ def get_quant_signals():
          
     # 4. DXY Momentum (FIXED)
     try:
-        dxy = get_fred_data("DTWEXBGS", limit=25) # Approx 1 month of trading days
+        dxy = get_fred_data_cached("DTWEXBGS", limit=25) # Approx 1 month of trading days
         if len(dxy) > 5:
             current = dxy[0]["value"]
             past = dxy[-1]["value"] # Safely grab the oldest available data point in our array

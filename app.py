@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv, find_dotenv
 import time
-import google.generativeai as genai
+from google import genai
 import json
 
 # Aggressively load the secure vault
@@ -367,7 +367,6 @@ AI_MACRO_CACHE = {"data": None, "timestamp": 0}
 @app.get("/api/macro-ai")
 def get_macro_ai_analysis():
     global AI_MACRO_CACHE
-    import time
     current_time = time.time()
 
     # Serve from RAM if the analysis is less than 24 hours old (86400 seconds)
@@ -375,13 +374,12 @@ def get_macro_ai_analysis():
         return AI_MACRO_CACHE["data"]
 
     try:
-        # 1. Authenticate with Google
+        # 1. Authenticate with Google's NEXT-GEN SDK
         GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
         if not GOOGLE_API_KEY:
             return {"error": "API Key Missing"}
             
-        genai.configure(api_key=GOOGLE_API_KEY)
-        model = genai.GenerativeModel('gemini-3.7-flash')
+        client = genai.Client(api_key=GOOGLE_API_KEY)
 
         # 2. The Institutional Prompt
         prompt = """
@@ -401,13 +399,18 @@ def get_macro_ai_analysis():
         }
         """
 
-        # 3. Generate and Parse
-        response = model.generate_content(prompt)
+        # 3. Generate using the bleeding-edge Gemini 2.0 Flash model
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt,
+        )
         text_response = response.text.strip()
         
         # Clean markdown if Gemini accidentally included it
         if text_response.startswith("```json"):
             text_response = text_response[7:-3].strip()
+        elif text_response.startswith("```"):
+            text_response = text_response[3:-3].strip()
             
         ai_data = json.loads(text_response)
 

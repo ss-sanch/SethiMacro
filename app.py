@@ -137,22 +137,24 @@ def get_pillar_rates():
 @app.get("/api/pillar-gdp")
 def get_pillar_gdp():
     try:
-        # 1. Global Real GDP (Quarterly)
-        us_gdp = get_fred_data_cached("A191RL1Q225SBEA", limit=20) 
-        uk_gdp = get_fred_data_cached("UKNGDP", limit=20) # Keep whatever UK/EU tickers you currently use
-        eu_gdp = get_fred_data_cached("CLVMEURSCAB1GQEA19", limit=20) 
+        # 1. GLOBAL REAL GDP (Harmonized YoY % Growth, 20 Quarters / 5 Years)
+        us_gdp = get_fred_data_cached("GDPC1", limit=20, units="pc1") 
+        uk_gdp = get_fred_data_cached("CLVMNACSAB1GQGB", limit=20, units="pc1") 
+        eu_gdp = get_fred_data_cached("CLVMEURSCAB1GQEA19", limit=20, units="pc1") 
         
-        # 2. US Industrial Production
-        indpro = get_fred_data_cached("INDPRO", limit=60, units="pc1") # YoY %
+        # 2. US INDUSTRIAL PRODUCTION (YoY %)
+        indpro = get_fred_data_cached("INDPRO", limit=60, units="pc1") 
         
-        # 3. US Retail Sales (The Consumer Engine - YoY %)
+        # 3. US RETAIL SALES (YoY %)
         retail = get_fred_data_cached("RSAFS", limit=60, units="pc1")
         
-        # 4. Consumer Sentiment (Leading Indicator)
+        # 4. CONSUMER SENTIMENT (Index Level)
         sentiment = get_fred_data_cached("UMCSENT", limit=60)
         
         return {
-            "US_GDP": us_gdp, "UK_GDP": uk_gdp, "EU_GDP": eu_gdp,
+            "US_GDP": us_gdp,
+            "UK_GDP": uk_gdp,
+            "EU_GDP": eu_gdp,
             "IndPro": indpro,
             "Retail_Sales": retail,
             "Sentiment": sentiment

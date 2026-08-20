@@ -260,7 +260,6 @@ EARNINGS_CACHE = {"past": [], "future": [], "timestamp": 0}
 @app.get("/api/calendar-timeline")
 def get_macro_timeline():
     """Builds the dynamic timeline with Global Macro Data + International Mega-Cap Earnings"""
-    import yfinance as yf
     from datetime import datetime, timedelta
     import requests
     import os
@@ -298,64 +297,59 @@ def get_macro_timeline():
     except Exception as e:
         print(f"FRED fetch failed: {e}")
 
-    # 2. FETCH GLOBAL MEGA-CAP EARNINGS (WITH RAM CACHE & HUMAN DELAY)
+    # 2. FETCH GLOBAL MEGA-CAP EARNINGS (FINNHUB MULTI-API REDUNDANCY)
     global EARNINGS_CACHE
     current_time = time.time()
 
-    # If cache is younger than 12 hours, use it immediately
+    # If cache is younger than 12 hours, serve it instantly from RAM
     if current_time - EARNINGS_CACHE["timestamp"] < 43200 and (EARNINGS_CACHE["past"] or EARNINGS_CACHE["future"]):
         past.extend(EARNINGS_CACHE["past"])
         future.extend(EARNINGS_CACHE["future"])
     else:
-        # Sliced to the top 10 most essential to keep the initial fetch under 6 seconds
         mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "TSM", "NFLX"]
         temp_past, temp_future = [], []
 
-        safe_session = requests.Session()
-        safe_session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        })
+        FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
-        for ticker in mega_caps:
-            try:
-                stock = yf.Ticker(ticker, session=safe_session)
-                cal = stock.calendar
-                
-                earn_date = None
-                
-                # SCENARIO A: Dictionary
-                if isinstance(cal, dict) and 'Earnings Date' in cal:
-                    raw_earnings = cal['Earnings Date']
-                    if isinstance(raw_earnings, list) and len(raw_earnings) > 0:
-                        earn_date = raw_earnings[0]
-                # SCENARIO B: Pandas DataFrame
-                elif hasattr(cal, 'iloc') and 'Earnings Date' in cal.index:
-                    earn_date = cal.loc['Earnings Date'].iloc[0]
+        if not FINNHUB_API_KEY:
+            print("CRITICAL: FINNHUB_API_KEY missing from environment variables.")
+        else:
+            for ticker in mega_caps:
+                try:
+                    # Query the dedicated Finnhub Developer API
+                    url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&symbol={ticker}&token={FINNHUB_API_KEY}"
+                    res = requests.get(url, timeout=5)
+
+                    if res.status_code == 200:
+                        data = res.json()
+                        calendar = data.get("earningsCalendar", [])
+
+                        # Finnhub returns an array. Iterate to find the event in our 60-day window.
+                        for item in calendar:
+                            earn_date_str = item.get("date")
+                            if earn_date_str and start_date <= earn_date_str <= end_date:
+                                event = {"release_id": "EARNINGS", "date": earn_date_str, "ticker": ticker}
+                                if earn_date_str < today_str:
+                                    temp_past.append(event)
+                                else:
+                                    temp_future.append(event)
+                                break # Stop after finding the closest matching earnings date
+                    else:
+                        print(f"[{ticker}] Finnhub API rejected request: {res.status_code}")
+
+                    # Respect Finnhub's Free Tier Rate Limit (30 requests/minute)
+                    time.sleep(0.5)
+
+                except Exception as e:
+                    print(f"[{ticker}] Failed to fetch earnings from Finnhub: {e}")
                     
-                if earn_date:
-                    earn_date_str = earn_date.strftime('%Y-%m-%d') if hasattr(earn_date, 'strftime') else str(earn_date)[:10]
-                    if start_date <= earn_date_str <= end_date:
-                        event = {"release_id": "EARNINGS", "date": earn_date_str, "ticker": ticker}
-                        if earn_date_str < today_str:
-                            temp_past.append(event)
-                        else:
-                            temp_future.append(event)
-                else:
-                    print(f"[{ticker}] Earnings data structure unreadable.")
+            # Save fresh, unblocked data to RAM cache
+            EARNINGS_CACHE["past"] = temp_past
+            EARNINGS_CACHE["future"] = temp_future
+            EARNINGS_CACHE["timestamp"] = current_time
 
-                # THE MAGIC KEY: Sleep for 0.5 seconds so Yahoo doesn't think we are a DDoS bot
-                time.sleep(0.5)
-
-            except Exception as e:
-                print(f"[{ticker}] Failed to fetch earnings: {e}")
-                
-        # Save fresh data to RAM cache
-        EARNINGS_CACHE["past"] = temp_past
-        EARNINGS_CACHE["future"] = temp_future
-        EARNINGS_CACHE["timestamp"] = current_time
-
-        past.extend(temp_past)
-        future.extend(temp_future)
+            past.extend(temp_past)
+            future.extend(temp_future)
 
     # 3. SORT & SLICE HYBRID ARRAYS
     past = sorted(past, key=lambda x: x["date"])

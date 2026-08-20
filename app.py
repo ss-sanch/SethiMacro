@@ -142,7 +142,10 @@ def get_pillar_gdp():
     try:
         # 1. GLOBAL REAL GDP (Harmonized YoY % Growth, 20 Quarters / 5 Years)
         us_gdp = get_fred_data_cached("GDPC1", limit=20, units="pc1") 
-        uk_gdp = get_fred_data_cached("CLVMNACSAB1GQGB", limit=20, units="pc1") 
+        
+        # CRITICAL FIX: Swapped to the official UK ONS Real GDP (Chained Volume) ticker
+        uk_gdp = get_fred_data_cached("UKNQGSP", limit=20, units="pc1") 
+        
         eu_gdp = get_fred_data_cached("CLVMEURSCAB1GQEA19", limit=20, units="pc1") 
         
         # 2. US INDUSTRIAL PRODUCTION (YoY %)

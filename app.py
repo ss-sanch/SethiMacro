@@ -143,8 +143,8 @@ def get_pillar_gdp():
         # 1. GLOBAL REAL GDP (Harmonized YoY % Growth, 20 Quarters / 5 Years)
         us_gdp = get_fred_data_cached("GDPC1", limit=20, units="pc1") 
         
-        # CRITICAL FIX: Swapped to the official UK ONS Real GDP (Chained Volume) ticker
-        uk_gdp = get_fred_data_cached("UKNQGSP", limit=20, units="pc1") 
+        # THE FIX: Restored the official OECD tracker now that the cache is stable
+        uk_gdp = get_fred_data_cached("CLVMNACSAB1GQGB", limit=20, units="pc1") 
         
         eu_gdp = get_fred_data_cached("CLVMEURSCAB1GQEA19", limit=20, units="pc1") 
         

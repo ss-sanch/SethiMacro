@@ -255,6 +255,8 @@ def get_quant_signals():
          
     return signals
 
+EARNINGS_CACHE = {"past": [], "future": [], "timestamp": 0}
+
 @app.get("/api/calendar-timeline")
 def get_macro_timeline():
     """Builds the dynamic timeline with Global Macro Data + International Mega-Cap Earnings"""
@@ -262,19 +264,18 @@ def get_macro_timeline():
     from datetime import datetime, timedelta
     import requests
     import os
+    import time
 
     today = datetime.now()
     start_date = (today - timedelta(days=60)).strftime('%Y-%m-%d')
     end_date = (today + timedelta(days=60)).strftime('%Y-%m-%d')
-    
-    # Expanded FRED Releases: 
-    # US (10=CPI, 50=NFP, 53=GDP, 13=Ind Prod, 9=Retail, 46=PPI)
-    # Global (322=ECB Rate, 295=BOE Rate, 254=EU HICP, 356=UK CPI, 172=China GDP)
-    target_releases = [10, 50, 53, 13, 9, 46, 322, 295, 254, 356, 172]
-    past, future = [], []
     today_str = today.strftime('%Y-%m-%d')
     
-    # 1. FETCH GLOBAL MACRO DATA
+    # Expanded FRED Releases
+    target_releases = [10, 50, 53, 13, 9, 46, 322, 295, 254, 356, 172]
+    past, future = [], []
+    
+    # 1. FETCH GLOBAL MACRO DATA (FRED)
     try:
         FRED_API_KEY = os.getenv("FRED_API_KEY")
         session = requests.Session()
@@ -297,51 +298,66 @@ def get_macro_timeline():
     except Exception as e:
         print(f"FRED fetch failed: {e}")
 
-    # 2. FETCH GLOBAL MEGA-CAP EARNINGS (US + Top International ADRs)
-    mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "AVGO", "JPM", "TSM", "MU", "CRM", "NFLX"]
-    
-    # --- YAHOO FINANCE FIREWALL BYPASS ---
-    safe_session = requests.Session()
-    safe_session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    })
-    
-    for ticker in mega_caps:
-        try:
-            stock = yf.Ticker(ticker, session=safe_session)
-            cal = stock.calendar
-            
-            earn_date = None
-            
-            # SCENARIO A: yfinance returns a Python Dictionary
-            if isinstance(cal, dict) and 'Earnings Date' in cal:
-                raw_earnings = cal['Earnings Date']
-                if isinstance(raw_earnings, list) and len(raw_earnings) > 0:
-                    earn_date = raw_earnings[0]
+    # 2. FETCH GLOBAL MEGA-CAP EARNINGS (WITH RAM CACHE & HUMAN DELAY)
+    global EARNINGS_CACHE
+    current_time = time.time()
+
+    # If cache is younger than 12 hours, use it immediately
+    if current_time - EARNINGS_CACHE["timestamp"] < 43200 and (EARNINGS_CACHE["past"] or EARNINGS_CACHE["future"]):
+        past.extend(EARNINGS_CACHE["past"])
+        future.extend(EARNINGS_CACHE["future"])
+    else:
+        # Sliced to the top 10 most essential to keep the initial fetch under 6 seconds
+        mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "LLY", "TSM", "NFLX"]
+        temp_past, temp_future = [], []
+
+        safe_session = requests.Session()
+        safe_session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        })
+
+        for ticker in mega_caps:
+            try:
+                stock = yf.Ticker(ticker, session=safe_session)
+                cal = stock.calendar
+                
+                earn_date = None
+                
+                # SCENARIO A: Dictionary
+                if isinstance(cal, dict) and 'Earnings Date' in cal:
+                    raw_earnings = cal['Earnings Date']
+                    if isinstance(raw_earnings, list) and len(raw_earnings) > 0:
+                        earn_date = raw_earnings[0]
+                # SCENARIO B: Pandas DataFrame
+                elif hasattr(cal, 'iloc') and 'Earnings Date' in cal.index:
+                    earn_date = cal.loc['Earnings Date'].iloc[0]
                     
-            # SCENARIO B: yfinance returns a Pandas DataFrame
-            elif hasattr(cal, 'iloc') and 'Earnings Date' in cal.index:
-                earn_date = cal.loc['Earnings Date'].iloc[0]
+                if earn_date:
+                    earn_date_str = earn_date.strftime('%Y-%m-%d') if hasattr(earn_date, 'strftime') else str(earn_date)[:10]
+                    if start_date <= earn_date_str <= end_date:
+                        event = {"release_id": "EARNINGS", "date": earn_date_str, "ticker": ticker}
+                        if earn_date_str < today_str:
+                            temp_past.append(event)
+                        else:
+                            temp_future.append(event)
+                else:
+                    print(f"[{ticker}] Earnings data structure unreadable.")
+
+                # THE MAGIC KEY: Sleep for 0.5 seconds so Yahoo doesn't think we are a DDoS bot
+                time.sleep(0.5)
+
+            except Exception as e:
+                print(f"[{ticker}] Failed to fetch earnings: {e}")
                 
-            # If we successfully captured a date, format it and add it to the timeline
-            if earn_date:
-                # Safely convert pandas Timestamp or datetime object to a string
-                earn_date_str = earn_date.strftime('%Y-%m-%d') if hasattr(earn_date, 'strftime') else str(earn_date)[:10]
-                
-                if start_date <= earn_date_str <= end_date:
-                    event = {"release_id": "EARNINGS", "date": earn_date_str, "ticker": ticker}
-                    if earn_date_str < today_str:
-                        past.append(event)
-                    else:
-                        future.append(event)
-            else:
-                print(f"[{ticker}] Earnings data structure unreadable: {cal}")
-                
-        except Exception as e:
-            print(f"[{ticker}] Failed to fetch earnings: {e}")
-                            
+        # Save fresh data to RAM cache
+        EARNINGS_CACHE["past"] = temp_past
+        EARNINGS_CACHE["future"] = temp_future
+        EARNINGS_CACHE["timestamp"] = current_time
+
+        past.extend(temp_past)
+        future.extend(temp_future)
+
     # 3. SORT & SLICE HYBRID ARRAYS
-    # We are increasing the slice to 8 events per side to accommodate the denser global calendar
     past = sorted(past, key=lambda x: x["date"])
     future = sorted(future, key=lambda x: x["date"])
     

@@ -140,33 +140,44 @@ def get_pillar_rates():
 @app.get("/api/pillar-gdp")
 def get_pillar_gdp():
     try:
-        # 1. US and EU (FRED allows server-side % transformations here)
+        # 1. US & EU Real GDP (YoY % Growth)
         us_gdp = get_fred_data_cached("GDPC1", limit=20, units="pc1") 
         eu_gdp = get_fred_data_cached("CLVMEURSCAB1GQEA19", limit=20, units="pc1") 
         
-        # 2. THE UK FIX: Custom Year-over-Year (YoY) Math Engine
-        # We fetch 24 quarters of raw data (no "pc1") to manually calculate 20 quarters of growth
-        uk_raw = get_fred_data_cached("CLVMNACSAB1GQGB", limit=24) 
+        # 2. THE UK FIX: The Cascading Fallback Engine
         uk_gdp = []
-        if uk_raw and type(uk_raw) == list and len(uk_raw) >= 5:
-            # Loop through and divide Current Quarter by Same Quarter Last Year (i + 4)
-            for i in range(min(20, len(uk_raw) - 4)):
-                try:
-                    current_val = float(uk_raw[i]["value"])
-                    past_val = float(uk_raw[i+4]["value"])
-                    if past_val != 0:
-                        yoy_pct = ((current_val / past_val) - 1) * 100
-                        uk_gdp.append({"date": uk_raw[i]["date"], "value": round(yoy_pct, 2)})
-                except (ValueError, TypeError, KeyError):
-                    continue
+        # We test the 3 most reliable UK GDP tickers in descending order
+        for ticker in ["UKNQGSP", "CLVMNACSAB1GQGB", "NGDPSAXDCGBQ"]:
+            # Attempt A: Try FRED's native percentage calculator
+            uk_gdp = get_fred_data_cached(ticker, limit=20, units="pc1")
+            if uk_gdp and len(uk_gdp) > 5:
+                break # Success! Lock it in.
+                
+            # Attempt B: If FRED blocks the math, fetch raw and calculate manually
+            uk_raw = get_fred_data_cached(ticker, limit=24)
+            if uk_raw and isinstance(uk_raw, list) and len(uk_raw) >= 5:
+                # Force newest-first sorting to guarantee perfect math
+                uk_raw = sorted(uk_raw, key=lambda x: x.get("date", ""), reverse=True)
+                for i in range(len(uk_raw) - 4):
+                    try:
+                        curr = float(uk_raw[i]["value"])
+                        past = float(uk_raw[i+4]["value"])
+                        if past != 0:
+                            yoy = ((curr / past) - 1) * 100
+                            uk_gdp.append({"date": uk_raw[i]["date"], "value": round(yoy, 2)})
+                    except Exception:
+                        continue
+                if len(uk_gdp) > 5:
+                    uk_gdp = uk_gdp[:20]
+                    break # Success! Lock it in.
         
-        # 3. US INDUSTRIAL PRODUCTION (YoY %)
+        # 3. US Industrial Production (YoY %)
         indpro = get_fred_data_cached("INDPRO", limit=60, units="pc1") 
         
-        # 4. US RETAIL SALES (YoY %)
+        # 4. US Retail Sales (YoY %)
         retail = get_fred_data_cached("RSAFS", limit=60, units="pc1")
         
-        # 5. CONSUMER SENTIMENT (Index Level)
+        # 5. Consumer Sentiment (Index Level)
         sentiment = get_fred_data_cached("UMCSENT", limit=60)
         
         return {

@@ -173,13 +173,23 @@ def get_pillar_gdp():
 
 @app.get("/api/pillar-fx")
 def get_fx_data():
-    # Pulling 250 days of data for rich YTD currency charts
-    return {
-        "DXY": get_fred_data_cached("DTWEXBGS", limit=250),
-        "GBP_USD": get_fred_data_cached("DEXUSUK", limit=250),
-        "EUR_USD": get_fred_data_cached("DEXUSEU", limit=250),
-        "USD_CNY": get_fred_data_cached("DEXCHUS", limit=250)
-    }
+    # FRED Series IDs:
+        # DTWEXBGS: Nominal Broad U.S. Dollar Index
+        # DEXUSUK: U.S. Dollars to U.K. Pound Sterling (Cable)
+        # DEXUSEU: U.S. Dollars to Euro (Fiber)
+        # DEXJPUS: Japanese Yen to U.S. Dollar (The Carry Trade Proxy)
+        
+        dxy = get_fred_data_cached("DTWEXBGS", start_date)
+        gbp_usd = get_fred_data_cached("DEXUSUK", start_date)
+        eur_usd = get_fred_data_cached("DEXUSEU", start_date)
+        usd_jpy = get_fred_data_cached("DEXJPUS", start_date) # UPDATED HERE
+
+        return {
+            "dxy": dxy if isinstance(dxy, list) else [],
+            "gbp_usd": gbp_usd if isinstance(gbp_usd, list) else [],
+            "eur_usd": eur_usd if isinstance(eur_usd, list) else [],
+            "usd_jpy": usd_jpy if isinstance(usd_jpy, list) else [] # UPDATED HERE
+        }
 
 @app.get("/api/quant-signals")
 def get_quant_signals():

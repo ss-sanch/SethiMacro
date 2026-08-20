@@ -140,53 +140,32 @@ def get_pillar_rates():
 @app.get("/api/pillar-gdp")
 def get_pillar_gdp():
     try:
-        # 1. US & EU Real GDP (YoY % Growth)
-        us_gdp = get_fred_data_cached("GDPC1", limit=20, units="pc1") 
-        eu_gdp = get_fred_data_cached("CLVMEURSCAB1GQEA19", limit=20, units="pc1") 
+        # 1. GLOBAL REAL GDP (YoY % Growth - Last 16 Quarters / 4 Years)
+        # US Real GDP (YoY %)
+        us_gdp = get_fred_data_cached("GDPC1", limit=16, units="pc1") 
         
-        # 2. THE UK FIX: The Cascading Fallback Engine
-        uk_gdp = []
-        # We test the 3 most reliable UK GDP tickers in descending order
-        for ticker in ["UKNQGSP", "CLVMNACSAB1GQGB", "NGDPSAXDCGBQ"]:
-            # Attempt A: Try FRED's native percentage calculator
-            uk_gdp = get_fred_data_cached(ticker, limit=20, units="pc1")
-            if uk_gdp and len(uk_gdp) > 5:
-                break # Success! Lock it in.
-                
-            # Attempt B: If FRED blocks the math, fetch raw and calculate manually
-            uk_raw = get_fred_data_cached(ticker, limit=24)
-            if uk_raw and isinstance(uk_raw, list) and len(uk_raw) >= 5:
-                # Force newest-first sorting to guarantee perfect math
-                uk_raw = sorted(uk_raw, key=lambda x: x.get("date", ""), reverse=True)
-                for i in range(len(uk_raw) - 4):
-                    try:
-                        curr = float(uk_raw[i]["value"])
-                        past = float(uk_raw[i+4]["value"])
-                        if past != 0:
-                            yoy = ((curr / past) - 1) * 100
-                            uk_gdp.append({"date": uk_raw[i]["date"], "value": round(yoy, 2)})
-                    except Exception:
-                        continue
-                if len(uk_gdp) > 5:
-                    uk_gdp = uk_gdp[:20]
-                    break # Success! Lock it in.
+        # UK: Official OECD Harmonized Real GDP Growth Rate (YoY % pre-calculated)
+        uk_gdp = get_fred_data_cached("GBRGDPRQPSMEI", limit=16)
         
-        # 3. US Industrial Production (YoY %)
+        # Euro Area: Real GDP (YoY %)
+        eu_gdp = get_fred_data_cached("CLVMEURSCAB1GQEA19", limit=16, units="pc1") 
+        
+        # 2. US INDUSTRIAL PRODUCTION (YoY %)
         indpro = get_fred_data_cached("INDPRO", limit=60, units="pc1") 
         
-        # 4. US Retail Sales (YoY %)
+        # 3. US RETAIL SALES (YoY %)
         retail = get_fred_data_cached("RSAFS", limit=60, units="pc1")
         
-        # 5. Consumer Sentiment (Index Level)
+        # 4. CONSUMER SENTIMENT (Index Level)
         sentiment = get_fred_data_cached("UMCSENT", limit=60)
         
         return {
-            "US_GDP": us_gdp,
-            "UK_GDP": uk_gdp,
-            "EU_GDP": eu_gdp,
-            "IndPro": indpro,
-            "Retail_Sales": retail,
-            "Sentiment": sentiment
+            "US_GDP": us_gdp if isinstance(us_gdp, list) else [],
+            "UK_GDP": uk_gdp if isinstance(uk_gdp, list) else [],
+            "EU_GDP": eu_gdp if isinstance(eu_gdp, list) else [],
+            "IndPro": indpro if isinstance(indpro, list) else [],
+            "Retail_Sales": retail if isinstance(retail, list) else [],
+            "Sentiment": sentiment if isinstance(sentiment, list) else []
         }
     except Exception as e:
         print(f"Error in pillar-gdp: {e}")

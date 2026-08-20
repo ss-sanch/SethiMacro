@@ -105,11 +105,31 @@ def get_pillar_rates():
         return {}
 
 @app.get("/api/pillar-gdp")
-def get_gdp_data():
-    return {
-        "US_GDP": get_fred_data("GDPC1", limit=12, units="pc1"),
-        "US_Ind_Prod": get_fred_data("INDPRO", limit=12, units="pc1")
-    }
+def get_pillar_gdp():
+    try:
+        # 1. Global Real GDP (Quarterly)
+        us_gdp = get_fred_data("A191RL1Q225SBEA", limit=20) 
+        uk_gdp = get_fred_data("UKNGDP", limit=20) # Keep whatever UK/EU tickers you currently use
+        eu_gdp = get_fred_data("CLVMEURSCAB1GQEA19", limit=20) 
+        
+        # 2. US Industrial Production
+        indpro = get_fred_data("INDPRO", limit=60, units="pc1") # YoY %
+        
+        # 3. US Retail Sales (The Consumer Engine - YoY %)
+        retail = get_fred_data("RSAFS", limit=60, units="pc1")
+        
+        # 4. Consumer Sentiment (Leading Indicator)
+        sentiment = get_fred_data("UMCSENT", limit=60)
+        
+        return {
+            "US_GDP": us_gdp, "UK_GDP": uk_gdp, "EU_GDP": eu_gdp,
+            "IndPro": indpro,
+            "Retail_Sales": retail,
+            "Sentiment": sentiment
+        }
+    except Exception as e:
+        print(f"Error in pillar-gdp: {e}")
+        return {}
 
 @app.get("/api/pillar-fx")
 def get_fx_data():

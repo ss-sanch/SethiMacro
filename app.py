@@ -140,21 +140,33 @@ def get_pillar_rates():
 @app.get("/api/pillar-gdp")
 def get_pillar_gdp():
     try:
-        # 1. GLOBAL REAL GDP (Harmonized YoY % Growth, 20 Quarters / 5 Years)
+        # 1. US and EU (FRED allows server-side % transformations here)
         us_gdp = get_fred_data_cached("GDPC1", limit=20, units="pc1") 
-        
-        # THE FIX: Restored the official OECD tracker now that the cache is stable
-        uk_gdp = get_fred_data_cached("CLVMNACSAB1GQGB", limit=20, units="pc1") 
-        
         eu_gdp = get_fred_data_cached("CLVMEURSCAB1GQEA19", limit=20, units="pc1") 
         
-        # 2. US INDUSTRIAL PRODUCTION (YoY %)
+        # 2. THE UK FIX: Custom Year-over-Year (YoY) Math Engine
+        # We fetch 24 quarters of raw data (no "pc1") to manually calculate 20 quarters of growth
+        uk_raw = get_fred_data_cached("CLVMNACSAB1GQGB", limit=24) 
+        uk_gdp = []
+        if uk_raw and type(uk_raw) == list and len(uk_raw) >= 5:
+            # Loop through and divide Current Quarter by Same Quarter Last Year (i + 4)
+            for i in range(min(20, len(uk_raw) - 4)):
+                try:
+                    current_val = float(uk_raw[i]["value"])
+                    past_val = float(uk_raw[i+4]["value"])
+                    if past_val != 0:
+                        yoy_pct = ((current_val / past_val) - 1) * 100
+                        uk_gdp.append({"date": uk_raw[i]["date"], "value": round(yoy_pct, 2)})
+                except (ValueError, TypeError, KeyError):
+                    continue
+        
+        # 3. US INDUSTRIAL PRODUCTION (YoY %)
         indpro = get_fred_data_cached("INDPRO", limit=60, units="pc1") 
         
-        # 3. US RETAIL SALES (YoY %)
+        # 4. US RETAIL SALES (YoY %)
         retail = get_fred_data_cached("RSAFS", limit=60, units="pc1")
         
-        # 4. CONSUMER SENTIMENT (Index Level)
+        # 5. CONSUMER SENTIMENT (Index Level)
         sentiment = get_fred_data_cached("UMCSENT", limit=60)
         
         return {

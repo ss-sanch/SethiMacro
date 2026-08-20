@@ -61,7 +61,7 @@ def get_fred_data_cached_cached(series_id, limit=60, units="lin"):
             
     # 2. If it's missing or old, fetch it from FRED (1-2 seconds)
     print(f"Cache miss or expired for {series_id}. Fetching fresh data...")
-    fresh_data = get_fred_data_cached(series_id, limit=limit, units=units)
+    fresh_data = get_fred_data(series_id, limit=limit, units=units)
     
     # 3. Save to RAM and return
     if fresh_data: # Only cache if the fetch was successful

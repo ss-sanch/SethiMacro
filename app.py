@@ -5,6 +5,8 @@ import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv, find_dotenv
 import time
+import google.generativeai as genai
+import json
 
 # Aggressively load the secure vault
 load_dotenv(find_dotenv())
@@ -356,3 +358,69 @@ def get_macro_timeline():
     future = sorted(future, key=lambda x: x["date"])
     
     return {"past": past[-8:], "future": future[:8]}
+
+# ==========================================
+# ENTERPRISE AI MACRO CACHE (24 HOUR TTL)
+# ==========================================
+AI_MACRO_CACHE = {"data": None, "timestamp": 0}
+
+@app.get("/api/macro-ai")
+def get_macro_ai_analysis():
+    global AI_MACRO_CACHE
+    import time
+    current_time = time.time()
+
+    # Serve from RAM if the analysis is less than 24 hours old (86400 seconds)
+    if AI_MACRO_CACHE["data"] and (current_time - AI_MACRO_CACHE["timestamp"] < 86400):
+        return AI_MACRO_CACHE["data"]
+
+    try:
+        # 1. Authenticate with Google
+        GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+        if not GOOGLE_API_KEY:
+            return {"error": "API Key Missing"}
+            
+        genai.configure(api_key=GOOGLE_API_KEY)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        # 2. The Institutional Prompt
+        prompt = """
+        You are a Chief Economist at a top-tier hedge fund. Provide a concise, highly professional daily macroeconomic briefing.
+        
+        You MUST return your response STRICTLY as a JSON object with the following exactly named keys. Do NOT use markdown code blocks like ```json. Just return the raw JSON dictionary.
+        
+        {
+            "executive_summary": "A 3-sentence overarching summary of current global macroeconomic risk, central bank posturing, and the broad market regime.",
+            "jobs": "A 2-sentence summary of the current US and global labor market tightness.",
+            "inflation": "A 2-sentence summary of current inflation dynamics and sovereign yield curve behavior.",
+            "gdp": "A 2-sentence summary of global economic growth and industrial output.",
+            "fx": "A 2-sentence summary of the US Dollar's strength and the Japanese Yen carry trade."
+        }
+        """
+
+        # 3. Generate and Parse
+        response = model.generate_content(prompt)
+        text_response = response.text.strip()
+        
+        # Clean markdown if Gemini accidentally included it
+        if text_response.startswith("```json"):
+            text_response = text_response[7:-3].strip()
+            
+        ai_data = json.loads(text_response)
+
+        # 4. Save to RAM Cache
+        AI_MACRO_CACHE["data"] = ai_data
+        AI_MACRO_CACHE["timestamp"] = current_time
+
+        return ai_data
+
+    except Exception as e:
+        print(f"AI Generation Failed: {e}")
+        # Fallback payload so the frontend never crashes
+        return {
+            "executive_summary": "Macroeconomic AI synthesis is currently undergoing scheduled maintenance. Displaying raw data streams.",
+            "jobs": "Tracking employment momentum and labor tightness.",
+            "inflation": "Tracking central bank policy divergence and sovereign yield curves.",
+            "gdp": "Tracking real economic output and consumer resilience.",
+            "fx": "Tracking global currency regimes and cross-border capital flows."
+        }

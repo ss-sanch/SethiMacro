@@ -79,25 +79,28 @@ def read_root():
 @app.get("/api/pillar-jobs")
 def get_pillar_jobs():
     try:
-        # 1. GLOBAL UNEMPLOYMENT
-        us_u = get_fred_data_cached_cached("UNRATE", limit=60)
-        uk_u = get_fred_data_cached_cached("LRHUTTTTGBM156S", limit=60)
-        eu_u = get_fred_data_cached_cached("LRHUTTTTDEM156S", limit=60) 
+        # 1. GLOBAL UNEMPLOYMENT (Force 60 months / 5 Years)
+        us_u = get_fred_data_cached("UNRATE", limit=60)
+        uk_u = get_fred_data_cached("LRHUTTTTGBM156S", limit=60)
+        eu_u = get_fred_data_cached("LRHUTTTTDEM156S", limit=60) 
         
         # 2. US LABOR TIGHTNESS
         jolts = get_fred_data_cached("JTSJOL", limit=24) 
+        # Note: NFP MUST have units="chg" to show monthly additions
         nfp = get_fred_data_cached("PAYEMS", limit=24, units="chg") 
         
-        # 3. WAGE INFLATION (New Metric: 5 Years YoY %)
+        # 3. WAGE INFLATION 
+        # Note: Wages MUST have units="pc1" to show YoY %
         wages = get_fred_data_cached("CES0500000003", limit=60, units="pc1")
         
+        # CRITICAL FIX: These keys must perfectly match the JavaScript frontend
         return {
             "US_Unemp": us_u,
             "UK_Unemp": uk_u,
             "EU_Unemp": eu_u,
             "US_JOLTS": jolts,
             "US_NFP": nfp,
-            "US_Wages": wages # <-- Make sure to add this to the payload!
+            "US_Wages": wages
         }
     except Exception as e:
         print(f"Error in pillar-jobs: {e}")

@@ -391,7 +391,7 @@ def get_macro_ai_analysis():
         You MUST return your response STRICTLY as a JSON object with the following exactly named keys. Do NOT use markdown code blocks like ```json. Just return the raw JSON string.
         
         {
-            "executive_summary": "A 3-sentence overarching summary of today's global macroeconomic risk, central bank posturing, and the broad market regime based on today's financial news.",
+            "executive_summary": "Write a highly focused, 3-sentence summary of the immediate global macro environment. DO NOT give a generic overview. You MUST focus strictly on real-time catalysts, immediate news, and the most critical upcoming or recently passed events on the macroeconomic calendar (e.g., recent CPI prints, upcoming NFP, or Central Bank rate decisions) and explain how they are driving current market volatility."
             "jobs": "A 2-sentence summary focusing specifically on current US Unemployment trends, labor market tightness (JOLTS), Nonfarm Payrolls momentum, and wage growth (YoY) dynamics.",
             "inflation": "A 2-sentence summary analyzing current US inflation (CPI/PCE/PPI) trends, 10Y Sovereign Yield Spreads (US vs UK vs Germany), and Fed vs ECB rate cut/hike policies.",
             "gdp": "A 2-sentence summary evaluating Global Real GDP growth divergence, US Industrial Production, Retail Sales consumer resilience, and Consumer Sentiment.",

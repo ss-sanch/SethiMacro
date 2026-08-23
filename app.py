@@ -198,6 +198,35 @@ def get_fx_data():
         print(f"Error in pillar-fx: {e}")
         return {}
 
+@app.get("/api/pillar-yield-curve")
+def get_pillar_yield_curve():
+    try:
+        # 1. HISTORICAL INVERSION SPREAD (10Y-2Y)
+        # Fetching 20 Years (240 months) using the frequency=m trick for optimal rendering speed
+        spread_history = get_fred_data_cached("T10Y2Y", limit=240, units="lin&frequency=m")
+
+        # 2. TERM STRUCTURE SNAPSHOT (Raw Maturities)
+        # Fetching 260 days (approx. 1 trading year) to allow the frontend to plot Today vs 1 Year Ago
+        m3 = get_fred_data_cached("DGS3MO", limit=260)
+        y2 = get_fred_data_cached("DGS2", limit=260)
+        y5 = get_fred_data_cached("DGS5", limit=260)
+        y10 = get_fred_data_cached("DGS10", limit=260)
+        y30 = get_fred_data_cached("DGS30", limit=260)
+
+        return {
+            "Inversion_Spread": spread_history if isinstance(spread_history, list) else [],
+            "Term_Structure": {
+                "3M": m3 if isinstance(m3, list) else [],
+                "2Y": y2 if isinstance(y2, list) else [],
+                "5Y": y5 if isinstance(y5, list) else [],
+                "10Y": y10 if isinstance(y10, list) else [],
+                "30Y": y30 if isinstance(y30, list) else []
+            }
+        }
+    except Exception as e:
+        print(f"Error in pillar-yield-curve: {e}")
+        return {}
+
 @app.get("/api/quant-signals")
 def get_quant_signals():
     signals = {}

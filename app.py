@@ -283,7 +283,36 @@ def get_quant_signals():
             signals["DXY_Strength"] = {"value": "N/A", "status": "Awaiting Data"}
     except Exception:
         signals["DXY_Strength"] = {"value": "N/A", "status": "Error"}
-         
+
+    # 5. COMPOSITE RISK BAROMETER (0-100 Score)
+    try:
+        # A. Labor component (0-40 pts): 0.50% Sahm triggers max points
+        labor_pts = min(40.0, max(0.0, (sahm_value / 0.50) * 40.0))
+        # B. Curve Inversion component (0-35 pts): spread < 0 triggers risk points
+        curve_pts = min(35.0, max(0.0, (0.75 - spread) * 23.3))
+        # C. Monetary Policy Restrictiveness (0-25 pts)
+        policy_pts = min(25.0, max(0.0, (gap + 1.0) * 8.33))
+        
+        composite_score = round(labor_pts + curve_pts + policy_pts, 1)
+        
+        if composite_score >= 65:
+            regime = "High Stress / Recessionary"
+            regime_color = "text-red-600"
+        elif composite_score >= 35:
+            regime = "Elevated Volatility"
+            regime_color = "text-amber-500"
+        else:
+            regime = "Risk-On (Low Stress)"
+            regime_color = "text-emerald-600"
+            
+        signals["Risk_Barometer"] = {
+            "score": composite_score,
+            "regime": regime,
+            "color": regime_color
+        }
+    except Exception:
+        signals["Risk_Barometer"] = {"score": 50.0, "regime": "Neutral", "color": "text-gray-600"}
+        
     return signals
 
 EARNINGS_CACHE = {"past": [], "future": [], "timestamp": 0}
@@ -420,7 +449,7 @@ def get_macro_ai_analysis():
         You MUST return your response STRICTLY as a JSON object with the following exactly named keys. Do NOT use markdown code blocks like ```json. Just return the raw JSON string.
         
         {
-            "executive_summary": "Write a highly focused, 3-sentence summary of the immediate global macro environment. DO NOT give a generic overview. You MUST focus strictly on real-time catalysts, immediate news, and the most critical upcoming or recently passed events on the macroeconomic calendar (e.g., recent CPI prints, upcoming NFP, or Central Bank rate decisions) and explain how they are driving current market volatility."
+            "executive_summary": "Write a highly focused, 5-sentence summary of the immediate global macro environment. DO NOT give a generic overview. You MUST focus strictly on real-time catalysts, immediate news, and the most critical upcoming or recently passed events on the macroeconomic calendar (e.g., recent CPI prints, upcoming NFP, or Central Bank rate decisions) and explain how they are driving current market volatility."
             "jobs": "A 2-sentence summary focusing specifically on current US Unemployment trends, labor market tightness (JOLTS), Nonfarm Payrolls momentum, and wage growth (YoY) dynamics.",
             "inflation": "A 2-sentence summary analyzing current US inflation (CPI/PCE/PPI) trends, 10Y Sovereign Yield Spreads (US vs UK vs Germany), and Fed vs ECB rate cut/hike policies.",
             "gdp": "A 2-sentence summary evaluating Global Real GDP growth divergence, US Industrial Production, Retail Sales consumer resilience, and Consumer Sentiment.",

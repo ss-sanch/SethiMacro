@@ -28,18 +28,30 @@ app.add_middleware(
 
 def get_fred_data_cached(series_id, limit=12, units="lin"):
     url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json&limit={limit}&sort_order=desc&units={units}"
-    try:
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            return [
-                {"date": obs["date"], "value": float(obs["value"])} 
-                for obs in data["observations"] 
-                if obs["value"] != "."
-            ]
-    except Exception as e:
-        print(f"Failed to fetch {series_id}: {e}")
-    return []
+    for attempt in range(3):
+            try:
+                response = requests.get(url, timeout=15)
+                if response.status_code == 200:
+                    data = response.json()
+                    obs_list = [
+                        {"date": obs["date"], "value": float(obs["value"])}
+                        for obs in data.get("observations", [])
+                        if obs.get("value") not in [".", None, ""]
+                    ]
+                    if obs_list:
+                        MACRO_CACHE[cache_key] = (current_time, obs_list)
+                        return obs_list
+                else:
+                    print(f"FRED HTTP {response.status_code} on {series_id}")
+                    break # Stop retrying on hard errors (e.g., 400 Bad Request)
+            except requests.exceptions.ReadTimeout:
+                print(f"FRED Timeout on {series_id}. Retrying {attempt+1}/3...")
+                time.sleep(1) # Brief pause before knocking again
+            except Exception as e:
+                print(f"Failed to fetch {series_id}: {e}")
+                break
+                
+        return []
 
 # ==========================================
 # THE ENTERPRISE RAM CACHE ENGINE

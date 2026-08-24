@@ -23,65 +23,53 @@ app.add_middleware(
 )
 
 # ==========================================
-# --- CORE DATA FETCHING ENGINE ---
-# ==========================================
-
-def get_fred_data_cached(series_id, limit=12, units="lin"):
-    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json&limit={limit}&sort_order=desc&units={units}"
-    for attempt in range(3):
-            try:
-                response = requests.get(url, timeout=15)
-                if response.status_code == 200:
-                    data = response.json()
-                    obs_list = [
-                        {"date": obs["date"], "value": float(obs["value"])}
-                        for obs in data.get("observations", [])
-                        if obs.get("value") not in [".", None, ""]
-                    ]
-                    if obs_list:
-                        MACRO_CACHE[cache_key] = (current_time, obs_list)
-                        return obs_list
-                else:
-                    print(f"FRED HTTP {response.status_code} on {series_id}")
-                    break # Stop retrying on hard errors (e.g., 400 Bad Request)
-            except requests.exceptions.ReadTimeout:
-                print(f"FRED Timeout on {series_id}. Retrying {attempt+1}/3...")
-                time.sleep(1) # Brief pause before knocking again
-            except Exception as e:
-                print(f"Failed to fetch {series_id}: {e}")
-                break
-                
-        return []
-
-# ==========================================
-# THE ENTERPRISE RAM CACHE ENGINE
+# THE ENTERPRISE RAM CACHE & FETCH ENGINE
 # ==========================================
 MACRO_CACHE = {}
 CACHE_EXPIRE_SECONDS = 43200 # 12 Hours (FRED only updates data daily/monthly anyway)
 
-def get_fred_data_cached_cached(series_id, limit=60, units="lin"):
+def get_fred_data_cached(series_id, limit=60, units="lin"):
     """
-    Checks the RAM cache first. If the data is missing or older than 12 hours,
-    it fetches fresh data from FRED and saves it to RAM.
+    Checks the RAM cache first. If missing or expired, fetches fresh data 
+    from FRED using a 15-second timeout and a 3-attempt retry loop.
     """
     cache_key = f"{series_id}_{limit}_{units}"
     current_time = time.time()
     
-    # 1. If we have the data and it's fresh, return it instantly (0.001 seconds)
+    # 1. Return from RAM cache if valid
     if cache_key in MACRO_CACHE:
         cached_time, cached_data = MACRO_CACHE[cache_key]
         if current_time - cached_time < CACHE_EXPIRE_SECONDS:
             return cached_data
-            
-    # 2. If it's missing or old, fetch it from FRED (1-2 seconds)
-    print(f"Cache miss or expired for {series_id}. Fetching fresh data...")
-    fresh_data = get_fred_data(series_id, limit=limit, units=units)
+
+    # 2. Query FRED API on cache miss
+    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json&limit={limit}&sort_order=desc&units={units}"
     
-    # 3. Save to RAM and return
-    if fresh_data: # Only cache if the fetch was successful
-        MACRO_CACHE[cache_key] = (current_time, fresh_data)
-        
-    return fresh_data
+    for attempt in range(3):
+        try:
+            response = requests.get(url, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                obs_list = [
+                    {"date": obs["date"], "value": float(obs["value"])}
+                    for obs in data.get("observations", [])
+                    if obs.get("value") not in [".", None, ""]
+                ]
+                if obs_list:
+                    # 3. Save to RAM and return
+                    MACRO_CACHE[cache_key] = (current_time, obs_list)
+                    return obs_list
+            else:
+                print(f"FRED HTTP {response.status_code} on {series_id}")
+                break # Stop retrying on hard errors (e.g., 400 Bad Request)
+        except requests.exceptions.ReadTimeout:
+            print(f"FRED Timeout on {series_id}. Retrying {attempt+1}/3...")
+            time.sleep(1) # Brief pause before knocking again
+        except Exception as e:
+            print(f"Failed to fetch {series_id}: {e}")
+            break
+            
+    return []
 # ==========================================
 # --- GLOBAL MACRO PILLARS ---
 # ==========================================

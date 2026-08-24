@@ -444,9 +444,9 @@ def get_macro_timeline():
 @app.get("/api/pillar-commodities")
 def get_pillar_commodities():
     try:
-        # Fetch 10 years of monthly data for fast rendering
         oil = get_fred_data_cached("DCOILWTICO", limit=120, units="lin&frequency=m")
-        gold = get_fred_data_cached("GOLDAMGBD228NLBM", limit=120, units="lin&frequency=m")
+        # THE FIX: Swapped restricted ICE Gold for IMF Global Price of Gold
+        gold = get_fred_data_cached("PALLFNFDIRT", limit=120, units="lin")
         hy_spread = get_fred_data_cached("BAMLH0A0HYM2", limit=120, units="lin&frequency=m")
         
         return {

@@ -440,6 +440,24 @@ def get_macro_timeline():
     
     return {"past": past[-8:], "future": future[:8]}
 
+
+@app.get("/api/pillar-commodities")
+def get_pillar_commodities():
+    try:
+        # Fetch 10 years of monthly data for fast rendering
+        oil = get_fred_data_cached("DCOILWTICO", limit=120, units="lin&frequency=m")
+        gold = get_fred_data_cached("GOLDAMGBD228NLBM", limit=120, units="lin&frequency=m")
+        hy_spread = get_fred_data_cached("BAMLH0A0HYM2", limit=120, units="lin&frequency=m")
+        
+        return {
+            "Oil": oil if isinstance(oil, list) else [],
+            "Gold": gold if isinstance(gold, list) else [],
+            "Credit_Spread": hy_spread if isinstance(hy_spread, list) else []
+        }
+    except Exception as e:
+        print(f"Error in pillar-commodities: {e}")
+        return {}
+
 # ==========================================
 # ENTERPRISE AI MACRO CACHE (24 HOUR TTL)
 # ==========================================

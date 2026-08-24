@@ -444,14 +444,34 @@ def get_macro_timeline():
 @app.get("/api/pillar-commodities")
 def get_pillar_commodities():
     try:
+        # 1. WTI Crude Oil & High-Yield Spreads (FRED)
         oil = get_fred_data_cached("DCOILWTICO", limit=120, units="lin&frequency=m")
-        # THE FIX: Swapped restricted ICE Gold for IMF Global Price of Gold
-        gold = get_fred_data_cached("PALLFNFDIRT", limit=120, units="lin")
         hy_spread = get_fred_data_cached("BAMLH0A0HYM2", limit=120, units="lin&frequency=m")
         
+        # 2. Gold Futures (Yahoo Finance JSON API Bypass)
+        gold = []
+        try:
+            import requests
+            from datetime import datetime
+            yh_url = "https://query2.finance.yahoo.com/v8/finance/chart/GC=F?range=10y&interval=1mo"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            res = requests.get(yh_url, headers=headers, timeout=5)
+            
+            if res.status_code == 200:
+                data = res.json()
+                timestamps = data["chart"]["result"][0]["timestamp"]
+                closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+                
+                for t, c in zip(timestamps, closes):
+                    if c is not None:
+                        dt = datetime.fromtimestamp(t).strftime('%Y-%m-%d')
+                        gold.append({"date": dt, "value": round(c, 2)})
+        except Exception as e:
+            print(f"Yahoo Gold fetch failed: {e}")
+            
         return {
             "Oil": oil if isinstance(oil, list) else [],
-            "Gold": gold if isinstance(gold, list) else [],
+            "Gold": gold,
             "Credit_Spread": hy_spread if isinstance(hy_spread, list) else []
         }
     except Exception as e:
@@ -490,11 +510,12 @@ def get_macro_ai_analysis():
         You MUST return your response STRICTLY as a JSON object with the following exactly named keys. Do NOT use markdown code blocks like ```json. Just return the raw JSON string.
         
         {
-            "executive_summary": "Write a highly focused, 5-sentence summary of the immediate global macro environment. DO NOT give a generic overview. You MUST focus strictly on real-time catalysts, immediate news, and the most critical upcoming or recently passed events on the macroeconomic calendar (e.g., recent CPI prints, upcoming NFP, or Central Bank rate decisions) and explain how they are driving current market volatility."
-            "jobs": "A 2-sentence summary focusing specifically on current US Unemployment trends, labor market tightness (JOLTS), Nonfarm Payrolls momentum, and wage growth (YoY) dynamics.",
-            "inflation": "A 2-sentence summary analyzing current US inflation (CPI/PCE/PPI) trends, 10Y Sovereign Yield Spreads (US vs UK vs Germany), and Fed vs ECB rate cut/hike policies.",
-            "gdp": "A 2-sentence summary evaluating Global Real GDP growth divergence, US Industrial Production, Retail Sales consumer resilience, and Consumer Sentiment.",
-            "fx": "A 2-sentence summary detailing the current strength of the US Dollar Index (DXY), EUR/USD (Fiber), GBP/USD (Cable), and specifically the USD/JPY (BOJ policy & Yen Carry Trade) dynamics."
+            "executive_summary": "Write a highly focused, 5-sentence summary in UK English of the immediate global macro environment. DO NOT give a generic overview. You MUST focus strictly on real-time catalysts, immediate news, and the most critical upcoming or recently passed events on the macroeconomic calendar (e.g., recent CPI prints, upcoming NFP, or Central Bank rate decisions) and explain how they are driving current market volatility."
+            "jobs": "A 3-sentence summary in UK English focusing specifically on current US Unemployment trends, labor market tightness (JOLTS), Nonfarm Payrolls momentum, and wage growth (YoY) dynamics.",
+            "inflation": "A 3-sentence summary in UK English analyzing current US inflation (CPI/PCE/PPI) trends, 10Y Sovereign Yield Spreads (US vs UK vs Germany), and Fed vs ECB rate cut/hike policies.",
+            "gdp": "A 3-sentence summary in UK English evaluating Global Real GDP growth divergence, US Industrial Production, Retail Sales consumer resilience, and Consumer Sentiment.",
+            "fx": "A 3-sentence summary in UK English detailing the current strength of the US Dollar Index (DXY), EUR/USD (Fiber), GBP/USD (Cable), and specifically the USD/JPY (BOJ policy & Yen Carry Trade) dynamics."
+            "commodities": "A 3-sentence summary in UK English evaluating systemic physical market stress based on current WTI Crude Oil prices, Gold safe-haven flows, and US High-Yield Corporate Credit Spreads (OAS)."
         }
         """
 

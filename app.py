@@ -286,32 +286,55 @@ def get_quant_signals():
 
     # 5. COMPOSITE RISK BAROMETER (0-100 Score)
     try:
-        # A. Labor component (0-40 pts): 0.50% Sahm triggers max points
-        labor_pts = min(40.0, max(0.0, (sahm_value / 0.50) * 40.0))
-        # B. Curve Inversion component (0-35 pts): spread < 0 triggers risk points
-        curve_pts = min(35.0, max(0.0, (0.75 - spread) * 23.3))
-        # C. Monetary Policy Restrictiveness (0-25 pts)
-        policy_pts = min(25.0, max(0.0, (gap + 1.0) * 8.33))
-        
-        composite_score = round(labor_pts + curve_pts + policy_pts, 1)
-        
+        # A. Baseline Normal Market Friction (15 pts)
+        base_friction = 15.0
+
+        # B. Labor Component (Max 35 pts)
+        # Scales smoothly up to 35 pts as Sahm approaches/exceeds 0.50%
+        labor_pts = min(35.0, max(0.0, ((sahm_value + 0.10) / 0.60) * 35.0))
+
+        # C. Curve Dynamic Component (Max 30 pts)
+        # Yield curves between -0.50% and +0.60% (inversion or early steepening) carry elevated cycle risk
+        if spread < 0:
+            curve_pts = 30.0  # Full inverted risk
+        elif spread <= 0.75:
+            curve_pts = 30.0 - (spread * 20.0)  # Post-inversion transition risk
+        else:
+            curve_pts = 5.0  # Fully normalized healthy curve
+
+        # D. Monetary Restrictiveness Component (Max 20 pts)
+        # Actual fed funds rate vs historical neutral
+        policy_pts = min(20.0, max(0.0, (actual_fed_funds / 6.0) * 20.0))
+
+        composite_score = round(base_friction + labor_pts + curve_pts + policy_pts, 1)
+        composite_score = min(100.0, max(0.0, composite_score))
+
         if composite_score >= 65:
             regime = "High Stress / Recessionary"
-            regime_color = "text-red-600"
+            badge_color = "bg-red-100 text-red-700"
+            bar_color = "bg-red-500"
         elif composite_score >= 35:
             regime = "Elevated Volatility"
-            regime_color = "text-amber-500"
+            badge_color = "bg-amber-100 text-amber-800"
+            bar_color = "bg-amber-500"
         else:
             regime = "Risk-On (Low Stress)"
-            regime_color = "text-emerald-600"
-            
+            badge_color = "bg-emerald-100 text-emerald-800"
+            bar_color = "bg-emerald-500"
+
         signals["Risk_Barometer"] = {
             "score": composite_score,
             "regime": regime,
-            "color": regime_color
+            "badge_color": badge_color,
+            "bar_color": bar_color
         }
     except Exception:
-        signals["Risk_Barometer"] = {"score": 50.0, "regime": "Neutral", "color": "text-gray-600"}
+        signals["Risk_Barometer"] = {
+            "score": 40.0,
+            "regime": "Moderate Neutral",
+            "badge_color": "bg-gray-100 text-gray-700",
+            "bar_color": "bg-gray-400"
+        }
         
     return signals
 

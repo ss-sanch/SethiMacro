@@ -15,43 +15,12 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
-      - name: Refresh persistent macro snapshots
+      - name: Refresh persistent SethiMacro snapshots
         env:
-          EDGE_URL: https://gqqftksplktxfrilltsx.supabase.co/functions/v1/sethimacro-refresh-snapshot
-          # Public anon JWT. The Edge Function only accepts whitelisted snapshot keys,
-          # fetches payloads from the trusted SethiMacro API, and never accepts payload data.
-          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxcWZ0a3NwbGt0eGZyaWxsdHN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwODYxNzMsImV4cCI6MjEwMjY2MjE3M30.epJsKCdBGrfzuWQ8a55TgyCA2T5-FjDYm-l0_338djs
+          FUNCTION_URL: https://gqqftksplktxfrilltsx.supabase.co/functions/v1/sethimacro-refresh-snapshots
+          SUPABASE_ANON_JWT: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxcWZ0a3NwbGt0eGZyaWxsdHN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwODYxNzMsImV4cCI6MjEwMjY2MjE3M30.epJsKCdBGrfzuWQ8a55TgyCA2T5-FjDYm-l0_338djs
         run: |
           set -euo pipefail
-          keys=(
-            pillar-jobs
-            pillar-rates
-            pillar-gdp
-            pillar-fx
-            quant-signals
-            calendar-timeline
-            pillar-yield-curve
-            pillar-commodities
-            macro-ai
-          )
-          failures=0
-          for key in "${keys[@]}"; do
-            echo "Refreshing $key"
-            if ! curl --fail --silent --show-error --max-time 150 \
-              -X POST "$EDGE_URL" \
-              -H "apikey: $SUPABASE_ANON_KEY" \
-              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
-              -H "Content-Type: application/json" \
-              --data "{"key":"$key"}"; then
-              echo "WARN: $key refresh failed"
-              failures=$((failures + 1))
-            fi
-            echo
-            sleep 2
-          done
-          if [ "$failures" -eq "${#keys[@]}" ]; then
-            echo "All macro snapshot refreshes failed"
-            exit 1
-          fi
+          curl --fail --silent --show-error --max-time 900             -X POST             -H "Authorization: Bearer $SUPABASE_ANON_JWT"             -H "Content-Type: application/json"             "$FUNCTION_URL"

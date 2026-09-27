@@ -1,0 +1,26 @@
+name: SethiMacro Snapshot Warmer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sethimacro-snapshot-warmer
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Refresh persistent SethiMacro snapshots
+        env:
+          FUNCTION_URL: https://gqqftksplktxfrilltsx.supabase.co/functions/v1/sethimacro-refresh-snapshots
+          SUPABASE_ANON_JWT: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxcWZ0a3NwbGt0eGZyaWxsdHN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwODYxNzMsImV4cCI6MjEwMjY2MjE3M30.epJsKCdBGrfzuWQ8a55TgyCA2T5-FjDYm-l0_338djs
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 900             -X POST             -H "Authorization: Bearer $SUPABASE_ANON_JWT"             -H "Content-Type: application/json"             "$FUNCTION_URL"

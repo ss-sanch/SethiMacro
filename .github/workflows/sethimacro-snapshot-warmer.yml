@@ -15,14 +15,17 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - name: Refresh macro snapshots
+      - name: Refresh persistent macro snapshots
         env:
-          API_BASE: https://sethimacro.sethiway.com/api
+          EDGE_URL: https://gqqftksplktxfrilltsx.supabase.co/functions/v1/sethimacro-refresh-snapshot
+          # Public anon JWT. The Edge Function only accepts whitelisted snapshot keys,
+          # fetches payloads from the trusted SethiMacro API, and never accepts payload data.
+          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxcWZ0a3NwbGt0eGZyaWxsdHN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwODYxNzMsImV4cCI6MjEwMjY2MjE3M30.epJsKCdBGrfzuWQ8a55TgyCA2T5-FjDYm-l0_338djs
         run: |
           set -euo pipefail
-          endpoints=(
+          keys=(
             pillar-jobs
             pillar-rates
             pillar-gdp
@@ -33,8 +36,22 @@ jobs:
             pillar-commodities
             macro-ai
           )
-          for endpoint in "${endpoints[@]}"; do
-            echo "Refreshing $endpoint"
-            curl --fail --silent --show-error --max-time 180 "$API_BASE/$endpoint" >/dev/null || echo "WARN: $endpoint refresh failed"
+          failures=0
+          for key in "${keys[@]}"; do
+            echo "Refreshing $key"
+            if ! curl --fail --silent --show-error --max-time 150 \
+              -X POST "$EDGE_URL" \
+              -H "apikey: $SUPABASE_ANON_KEY" \
+              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+              -H "Content-Type: application/json" \
+              --data "{"key":"$key"}"; then
+              echo "WARN: $key refresh failed"
+              failures=$((failures + 1))
+            fi
+            echo
             sleep 2
           done
+          if [ "$failures" -eq "${#keys[@]}" ]; then
+            echo "All macro snapshot refreshes failed"
+            exit 1
+          fi

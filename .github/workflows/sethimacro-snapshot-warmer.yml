@@ -1,0 +1,40 @@
+name: SethiMacro Snapshot Warmer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sethimacro-snapshot-warmer
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Refresh macro snapshots
+        env:
+          API_BASE: https://sethimacro.sethiway.com/api
+        run: |
+          set -euo pipefail
+          endpoints=(
+            pillar-jobs
+            pillar-rates
+            pillar-gdp
+            pillar-fx
+            quant-signals
+            calendar-timeline
+            pillar-yield-curve
+            pillar-commodities
+            macro-ai
+          )
+          for endpoint in "${endpoints[@]}"; do
+            echo "Refreshing $endpoint"
+            curl --fail --silent --show-error --max-time 180 "$API_BASE/$endpoint" >/dev/null || echo "WARN: $endpoint refresh failed"
+            sleep 2
+          done

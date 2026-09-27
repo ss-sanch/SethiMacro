@@ -118,7 +118,7 @@ def _snapshot_upsert(snapshot_key, payload, ttl_seconds, source_status="ok"):
 def _snapshot_payload_valid(snapshot_key, payload):
     if not isinstance(payload, dict) or not payload:
         return False
-    if payload.get("error"):
+    if payload.get("error") or payload.get("_partial"):
         return False
 
     required = {
@@ -754,6 +754,7 @@ def get_macro_ai_analysis():
         print(f"AI Generation Failed: {e}")
         # Fallback payload so the frontend never crashes
         return {
+            "_partial": True,
             "executive_summary": "Macroeconomic AI synthesis is currently undergoing scheduled maintenance. Displaying raw data streams.",
             "jobs": "Tracking employment momentum and labor tightness.",
             "inflation": "Tracking central bank policy divergence and sovereign yield curves.",

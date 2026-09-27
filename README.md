@@ -10,18 +10,16 @@ Required existing variables:
 - `FINNHUB_API_KEY`
 - `GOOGLE_API_KEY`
 
-Phase 1 persistent snapshots also require:
+The Phase 1 persistent snapshot layer does **not** require a Supabase service-role key on Render. A Supabase Edge Function performs trusted snapshot writes and the scheduled GitHub Action asks that function to refresh stale snapshot keys every six hours.
 
-- `SUPABASE_SERVICE_ROLE_KEY` — server-side only; used to upsert public-safe macro snapshots.
-- `SUPABASE_URL` is optional because the SethiWay Supabase project URL is the default.
-
-Do not expose the service-role key in frontend code. The browser uses the Supabase publishable key and RLS permits SELECT only.
+The backend can optionally write snapshots itself when `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_SERVICE_KEY`, or `SUPABASE_KEY` is present, but this is an optimisation rather than a deployment requirement.
 
 ## Cache model
 
-SethiMacro now uses two cache layers:
+SethiMacro now uses three layers:
 
-1. Warm-process RAM caching for individual FRED series.
-2. Persistent Supabase endpoint snapshots so Render restarts do not force visitors to rebuild the entire macro dashboard.
+1. Direct browser reads of public-safe Supabase snapshots for an almost immediate first useful render.
+2. Persistent endpoint snapshots used by the backend after a Render restart.
+3. Warm-process RAM caching for individual FRED series.
 
-The scheduled GitHub Action refreshes the endpoint snapshots every six hours. Endpoint-specific TTLs mean slower-moving pillars can remain cached longer while market-sensitive data refreshes more often.
+The snapshot refresh function only accepts a fixed whitelist of SethiMacro keys, fetches data from the trusted SethiMacro API itself, and writes with the Supabase service role inside the Edge Function. The browser remains SELECT-only under RLS.

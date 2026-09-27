@@ -205,12 +205,15 @@ def read_root():
     return {"status": "SethiMacro Global Quant Engine Online"}
 
 @app.get("/api/pillar-jobs")
+@snapshot_cached("pillar-jobs", 43200)
 def get_pillar_jobs():
     try:
-        # 1. GLOBAL UNEMPLOYMENT (Force 60 months / 5 Years)
+        # 1. GLOBAL UNEMPLOYMENT (60 monthly observations).
+        # US uses the timely BLS headline series; UK/Germany use OECD monthly SA rates.
+        # We expose the latest observation date so the UI never implies equal publication lags.
         us_u = get_fred_data_cached("UNRATE", limit=60)
         uk_u = get_fred_data_cached("LRHUTTTTGBM156S", limit=60)
-        eu_u = get_fred_data_cached("LRHUTTTTDEM156S", limit=60) 
+        de_u = get_fred_data_cached("LRHUTTTTDEM156S", limit=60)
         
         # 2. US LABOR TIGHTNESS
         jolts = get_fred_data_cached("JTSJOL", limit=24) 
@@ -221,11 +224,16 @@ def get_pillar_jobs():
         # Note: Wages MUST have units="pc1" to show YoY %
         wages = get_fred_data_cached("CES0500000003", limit=60, units="pc1")
         
-        # CRITICAL FIX: These keys must perfectly match the JavaScript frontend
         return {
             "US_Unemp": us_u,
             "UK_Unemp": uk_u,
-            "EU_Unemp": eu_u,
+            "DE_Unemp": de_u,
+            "EU_Unemp": de_u,  # legacy alias for older frontends
+            "Unemployment_Metadata": {
+                "US": {"label": "United States", "series": "UNRATE", "source": "BLS via FRED", "latest_date": us_u[0]["date"] if us_u else None},
+                "UK": {"label": "United Kingdom", "series": "LRHUTTTTGBM156S", "source": "OECD via FRED", "latest_date": uk_u[0]["date"] if uk_u else None},
+                "DE": {"label": "Germany", "series": "LRHUTTTTDEM156S", "source": "OECD via FRED", "latest_date": de_u[0]["date"] if de_u else None},
+            },
             "US_JOLTS": jolts,
             "US_NFP": nfp,
             "US_Wages": wages
@@ -235,11 +243,12 @@ def get_pillar_jobs():
         return {}
 
 @app.get("/api/pillar-rates")
+@snapshot_cached("pillar-rates", 21600)
 def get_pillar_rates():
     try:
         # 1. CENTRAL BANK RATES (Synced to Monthly)
         fed = get_fred_data_cached("FEDFUNDS", limit=60)
-        ecb = get_fred_data_cached("ECBDFR", limit=60, units="lin&frequency=m")
+        ecb = get_fred_data_cached("ECBDFR", limit=60, frequency="m")
         
         # 2. SOVEREIGN SPREADS
         us_10y = get_fred_data_cached("GS10", limit=60) 
@@ -252,8 +261,8 @@ def get_pillar_rates():
         ppi = get_fred_data_cached("WPSFD4131", limit=60, units="pc1")
 
         # 4. REAL COST OF CAPITAL (The New Pro Quant Chart)
-        breakeven = get_fred_data_cached("T10YIE", limit=60, units="lin&frequency=m") # Inflation Expectations
-        real_yield = get_fred_data_cached("DFII10", limit=60, units="lin&frequency=m") # TIPS Real Yield
+        breakeven = get_fred_data_cached("T10YIE", limit=60, frequency="m") # Inflation Expectations
+        real_yield = get_fred_data_cached("DFII10", limit=60, frequency="m") # TIPS Real Yield
         
         return {
             "Fed_Funds": fed, "ECB_Rate": ecb,
@@ -266,6 +275,7 @@ def get_pillar_rates():
         return {}
 
 @app.get("/api/pillar-gdp")
+@snapshot_cached("pillar-gdp", 43200)
 def get_pillar_gdp():
     try:
         # 1. GLOBAL REAL GDP (YoY % Growth - Last 16 Quarters / 4 Years)
@@ -300,6 +310,7 @@ def get_pillar_gdp():
         return {}
 
 @app.get("/api/pillar-fx")
+@snapshot_cached("pillar-fx", 14400)
 def get_fx_data():
     try:
         # FRED Series IDs:
@@ -308,28 +319,36 @@ def get_fx_data():
         # DEXUSEU: U.S. Dollars to Euro (Fiber)
         # DEXJPUS: Japanese Yen to U.S. Dollar (The Carry Trade Proxy)
         
-        # Using limit=60 to pull 5 years of monthly data, matching your other pillars
-        dxy = get_fred_data_cached("DTWEXBGS", limit=60)
-        gbp_usd = get_fred_data_cached("DEXUSUK", limit=60)
-        eur_usd = get_fred_data_cached("DEXUSEU", limit=60)
-        usd_jpy = get_fred_data_cached("DEXJPUS", limit=60)
+        # Five years of monthly data. FRED otherwise returns daily observations,
+        # which previously meant "60 points" was only around three months.
+        broad_usd = get_fred_data_cached("DTWEXBGS", limit=60, frequency="m")
+        gbp_usd = get_fred_data_cached("DEXUSUK", limit=60, frequency="m")
+        eur_usd = get_fred_data_cached("DEXUSEU", limit=60, frequency="m")
+        usd_jpy = get_fred_data_cached("DEXJPUS", limit=60, frequency="m")
 
         return {
-            "dxy": dxy if isinstance(dxy, list) else [],
+            "broad_usd": broad_usd if isinstance(broad_usd, list) else [],
+            "dxy": broad_usd if isinstance(broad_usd, list) else [],  # legacy alias
             "gbp_usd": gbp_usd if isinstance(gbp_usd, list) else [],
             "eur_usd": eur_usd if isinstance(eur_usd, list) else [],
-            "usd_jpy": usd_jpy if isinstance(usd_jpy, list) else []
+            "usd_jpy": usd_jpy if isinstance(usd_jpy, list) else [],
+            "FX_Metadata": {
+                "usd_index_name": "Nominal Broad U.S. Dollar Index",
+                "usd_index_series": "DTWEXBGS",
+                "frequency": "Monthly"
+            }
         }
     except Exception as e:
         print(f"Error in pillar-fx: {e}")
         return {}
 
 @app.get("/api/pillar-yield-curve")
+@snapshot_cached("pillar-yield-curve", 21600)
 def get_pillar_yield_curve():
     try:
         # 1. HISTORICAL INVERSION SPREAD (10Y-2Y)
         # Fetching 20 Years (240 months) using the frequency=m trick for optimal rendering speed
-        spread_history = get_fred_data_cached("T10Y2Y", limit=240, units="lin&frequency=m")
+        spread_history = get_fred_data_cached("T10Y2Y", limit=240, frequency="m")
 
         # 2. TERM STRUCTURE SNAPSHOT (Raw Maturities)
         # Fetching 260 days (approx. 1 trading year) to allow the frontend to plot Today vs 1 Year Ago
@@ -354,8 +373,12 @@ def get_pillar_yield_curve():
         return {}
 
 @app.get("/api/quant-signals")
+@snapshot_cached("quant-signals", 14400)
 def get_quant_signals():
     signals = {}
+    spread = None
+    sahm_value = None
+    actual_fed_funds = None
     
     # 1. Yield Spread
     try:
@@ -397,43 +420,41 @@ def get_quant_signals():
     except Exception:
          signals["Taylor_Rule"] = {"value": "N/A", "status": "Error"}
          
-    # 4. DXY Momentum (FIXED)
+    # 4. Broad USD Momentum (DTWEXBGS is not the ICE DXY index)
     try:
-        dxy = get_fred_data_cached("DTWEXBGS", limit=25) # Approx 1 month of trading days
-        if len(dxy) > 5:
-            current = dxy[0]["value"]
-            past = dxy[-1]["value"] # Safely grab the oldest available data point in our array
-            pct_change = round(((current - past)/past)*100, 2)
-            signals["DXY_Strength"] = {"value": round(current, 2), "status": f"+{pct_change}% (30D)" if pct_change >= 0 else f"{pct_change}% (30D)"}
+        broad_usd = get_fred_data_cached("DTWEXBGS", limit=25)
+        if len(broad_usd) > 5:
+            current = broad_usd[0]["value"]
+            past = broad_usd[-1]["value"]
+            pct_change = round(((current - past) / past) * 100, 2)
+            usd_signal = {
+                "value": round(current, 2),
+                "status": f"+{pct_change}% (30D)" if pct_change >= 0 else f"{pct_change}% (30D)",
+                "label": "Broad USD Index"
+            }
         else:
-            signals["DXY_Strength"] = {"value": "N/A", "status": "Awaiting Data"}
+            usd_signal = {"value": "N/A", "status": "Awaiting Data", "label": "Broad USD Index"}
     except Exception:
-        signals["DXY_Strength"] = {"value": "N/A", "status": "Error"}
+        usd_signal = {"value": "N/A", "status": "Error", "label": "Broad USD Index"}
+
+    signals["USD_Strength"] = usd_signal
+    signals["DXY_Strength"] = usd_signal  # legacy alias
 
     # 5. COMPOSITE RISK BAROMETER (0-100 Score)
-    try:
-        # A. Baseline Normal Market Friction (15 pts)
+    # Never fabricate a neutral score when an input is unavailable.
+    if all(isinstance(value, (int, float)) for value in (sahm_value, spread, actual_fed_funds)):
         base_friction = 15.0
-
-        # B. Labor Component (Max 35 pts)
-        # Scales smoothly up to 35 pts as Sahm approaches/exceeds 0.50%
         labor_pts = min(35.0, max(0.0, ((sahm_value + 0.10) / 0.60) * 35.0))
 
-        # C. Curve Dynamic Component (Max 30 pts)
-        # Yield curves between -0.50% and +0.60% (inversion or early steepening) carry elevated cycle risk
         if spread < 0:
-            curve_pts = 30.0  # Full inverted risk
+            curve_pts = 30.0
         elif spread <= 0.75:
-            curve_pts = 30.0 - (spread * 20.0)  # Post-inversion transition risk
+            curve_pts = 30.0 - (spread * 20.0)
         else:
-            curve_pts = 5.0  # Fully normalized healthy curve
+            curve_pts = 5.0
 
-        # D. Monetary Restrictiveness Component (Max 20 pts)
-        # Actual fed funds rate vs historical neutral
         policy_pts = min(20.0, max(0.0, (actual_fed_funds / 6.0) * 20.0))
-
-        composite_score = round(base_friction + labor_pts + curve_pts + policy_pts, 1)
-        composite_score = min(100.0, max(0.0, composite_score))
+        composite_score = min(100.0, max(0.0, round(base_friction + labor_pts + curve_pts + policy_pts, 1)))
 
         if composite_score >= 65:
             regime = "High Stress / Recessionary"
@@ -452,14 +473,16 @@ def get_quant_signals():
             "score": composite_score,
             "regime": regime,
             "badge_color": badge_color,
-            "bar_color": bar_color
+            "bar_color": bar_color,
+            "partial": False,
         }
-    except Exception:
+    else:
         signals["Risk_Barometer"] = {
-            "score": 40.0,
-            "regime": "Moderate Neutral",
+            "score": None,
+            "regime": "Partial data",
             "badge_color": "bg-gray-100 text-gray-700",
-            "bar_color": "bg-gray-400"
+            "bar_color": "bg-gray-300",
+            "partial": True,
         }
         
     return signals
@@ -467,6 +490,7 @@ def get_quant_signals():
 EARNINGS_CACHE = {"past": [], "future": [], "timestamp": 0}
 
 @app.get("/api/calendar-timeline")
+@snapshot_cached("calendar-timeline", 21600)
 def get_macro_timeline():
     """Builds the dynamic timeline with Global Macro Data + International Mega-Cap Earnings"""
     from datetime import datetime, timedelta
@@ -568,11 +592,12 @@ def get_macro_timeline():
 
 
 @app.get("/api/pillar-commodities")
+@snapshot_cached("pillar-commodities", 21600)
 def get_pillar_commodities():
     try:
         # 1. WTI Crude Oil & High-Yield Spreads (FRED)
-        oil = get_fred_data_cached("DCOILWTICO", limit=120, units="lin&frequency=m")
-        hy_spread = get_fred_data_cached("BAMLH0A0HYM2", limit=120, units="lin&frequency=m")
+        oil = get_fred_data_cached("DCOILWTICO", limit=120, frequency="m")
+        hy_spread = get_fred_data_cached("BAMLH0A0HYM2", limit=120, frequency="m")
         
         # 2. Gold Futures (Yahoo Finance JSON API Bypass)
         gold = []
@@ -610,6 +635,7 @@ def get_pillar_commodities():
 AI_MACRO_CACHE = {"data": None, "timestamp": 0}
 
 @app.get("/api/macro-ai")
+@snapshot_cached("macro-ai", 43200)
 def get_macro_ai_analysis():
     global AI_MACRO_CACHE
     current_time = time.time()
@@ -640,7 +666,7 @@ def get_macro_ai_analysis():
             "jobs": "A 3-sentence summary in UK English focusing specifically on current US Unemployment trends, labor market tightness (JOLTS), Nonfarm Payrolls momentum, and wage growth (YoY) dynamics.",
             "inflation": "A 3-sentence summary in UK English analyzing current US inflation (CPI/PCE/PPI) trends, 10Y Sovereign Yield Spreads (US vs UK vs Germany), and Fed vs ECB rate cut/hike policies.",
             "gdp": "A 3-sentence summary in UK English evaluating Global Real GDP growth divergence, US Industrial Production, Retail Sales consumer resilience, and Consumer Sentiment.",
-            "fx": "A 3-sentence summary in UK English detailing the current strength of the US Dollar Index (DXY), EUR/USD (Fiber), GBP/USD (Cable), and specifically the USD/JPY (BOJ policy & Yen Carry Trade) dynamics."
+            "fx": "A 3-sentence summary in UK English detailing the current strength of the Fed Nominal Broad U.S. Dollar Index, EUR/USD, GBP/USD, and USD/JPY (including BOJ policy and carry-trade dynamics)."
             "commodities": "A 3-sentence summary in UK English evaluating systemic physical market stress based on current WTI Crude Oil prices, Gold safe-haven flows, and US High-Yield Corporate Credit Spreads (OAS)."
         }
         """
@@ -674,5 +700,6 @@ def get_macro_ai_analysis():
             "jobs": "Tracking employment momentum and labor tightness.",
             "inflation": "Tracking central bank policy divergence and sovereign yield curves.",
             "gdp": "Tracking real economic output and consumer resilience.",
-            "fx": "Tracking global currency regimes and cross-border capital flows."
+            "fx": "Tracking global currency regimes and cross-border capital flows.",
+            "commodities": "Tracking oil, gold and high-yield credit conditions."
         }

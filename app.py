@@ -666,7 +666,7 @@ def get_macro_ai_analysis():
             "jobs": "A 3-sentence summary in UK English focusing specifically on current US Unemployment trends, labor market tightness (JOLTS), Nonfarm Payrolls momentum, and wage growth (YoY) dynamics.",
             "inflation": "A 3-sentence summary in UK English analyzing current US inflation (CPI/PCE/PPI) trends, 10Y Sovereign Yield Spreads (US vs UK vs Germany), and Fed vs ECB rate cut/hike policies.",
             "gdp": "A 3-sentence summary in UK English evaluating Global Real GDP growth divergence, US Industrial Production, Retail Sales consumer resilience, and Consumer Sentiment.",
-            "fx": "A 3-sentence summary in UK English detailing the current strength of the Fed Nominal Broad U.S. Dollar Index, EUR/USD, GBP/USD, and USD/JPY (including BOJ policy and carry-trade dynamics)."
+            "fx": "A 3-sentence summary in UK English detailing the current strength of the Fed Nominal Broad U.S. Dollar Index, EUR/USD, GBP/USD, and USD/JPY (including BOJ policy and carry-trade dynamics).",
             "commodities": "A 3-sentence summary in UK English evaluating systemic physical market stress based on current WTI Crude Oil prices, Gold safe-haven flows, and US High-Yield Corporate Credit Spreads (OAS)."
         }
         """

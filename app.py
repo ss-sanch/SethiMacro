@@ -149,10 +149,11 @@ def snapshot_cached(snapshot_key, ttl_seconds):
     def decorator(func):
         @wraps(func)
         def wrapped(*args, **kwargs):
+            force_refresh = bool(kwargs.get("force_refresh", False))
             row = _snapshot_get_row(snapshot_key)
             age = _snapshot_age_seconds(row)
             effective_ttl = int((row or {}).get("ttl_seconds") or ttl_seconds)
-            if row and _snapshot_payload_valid(snapshot_key, row.get("payload")) and age is not None and age < effective_ttl:
+            if not force_refresh and row and _snapshot_payload_valid(snapshot_key, row.get("payload")) and age is not None and age < effective_ttl:
                 return row["payload"]
 
             result = func(*args, **kwargs)
@@ -264,7 +265,7 @@ def runtime_status():
 
 @app.get("/api/pillar-jobs")
 @snapshot_cached("pillar-jobs", 43200)
-def get_pillar_jobs():
+def get_pillar_jobs(force_refresh: bool = False):
     try:
         # 1. GLOBAL UNEMPLOYMENT (60 monthly observations).
         # US uses the timely BLS headline series; UK/Germany use OECD monthly SA rates.
@@ -302,7 +303,7 @@ def get_pillar_jobs():
 
 @app.get("/api/pillar-rates")
 @snapshot_cached("pillar-rates", 21600)
-def get_pillar_rates():
+def get_pillar_rates(force_refresh: bool = False):
     try:
         # 1. CENTRAL BANK RATES (Synced to Monthly)
         fed = get_fred_data_cached("FEDFUNDS", limit=60)
@@ -334,7 +335,7 @@ def get_pillar_rates():
 
 @app.get("/api/pillar-gdp")
 @snapshot_cached("pillar-gdp", 43200)
-def get_pillar_gdp():
+def get_pillar_gdp(force_refresh: bool = False):
     try:
         # 1. GLOBAL REAL GDP (YoY % Growth - Last 16 Quarters / 4 Years)
         # US Real GDP (YoY %)
@@ -369,7 +370,7 @@ def get_pillar_gdp():
 
 @app.get("/api/pillar-fx")
 @snapshot_cached("pillar-fx", 14400)
-def get_fx_data():
+def get_fx_data(force_refresh: bool = False):
     try:
         # FRED Series IDs:
         # DTWEXBGS: Nominal Broad U.S. Dollar Index
@@ -402,7 +403,7 @@ def get_fx_data():
 
 @app.get("/api/pillar-yield-curve")
 @snapshot_cached("pillar-yield-curve", 21600)
-def get_pillar_yield_curve():
+def get_pillar_yield_curve(force_refresh: bool = False):
     try:
         # 1. HISTORICAL INVERSION SPREAD (10Y-2Y)
         # Fetching 20 Years (240 months) using the frequency=m trick for optimal rendering speed
@@ -432,7 +433,7 @@ def get_pillar_yield_curve():
 
 @app.get("/api/quant-signals")
 @snapshot_cached("quant-signals", 14400)
-def get_quant_signals():
+def get_quant_signals(force_refresh: bool = False):
     signals = {}
     spread = None
     sahm_value = None
@@ -549,7 +550,7 @@ EARNINGS_CACHE = {"past": [], "future": [], "timestamp": 0}
 
 @app.get("/api/calendar-timeline")
 @snapshot_cached("calendar-timeline", 21600)
-def get_macro_timeline():
+def get_macro_timeline(force_refresh: bool = False):
     """Builds the dynamic timeline with Global Macro Data + International Mega-Cap Earnings"""
     from datetime import datetime, timedelta
     import requests
@@ -651,7 +652,7 @@ def get_macro_timeline():
 
 @app.get("/api/pillar-commodities")
 @snapshot_cached("pillar-commodities", 21600)
-def get_pillar_commodities():
+def get_pillar_commodities(force_refresh: bool = False):
     try:
         # 1. WTI Crude Oil & High-Yield Spreads (FRED)
         oil = get_fred_data_cached("DCOILWTICO", limit=120, frequency="m")
@@ -694,7 +695,7 @@ AI_MACRO_CACHE = {"data": None, "timestamp": 0}
 
 @app.get("/api/macro-ai")
 @snapshot_cached("macro-ai", 43200)
-def get_macro_ai_analysis():
+def get_macro_ai_analysis(force_refresh: bool = False):
     global AI_MACRO_CACHE
     current_time = time.time()
 

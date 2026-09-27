@@ -115,6 +115,35 @@ def _snapshot_upsert(snapshot_key, payload, ttl_seconds, source_status="ok"):
         return False
 
 
+def _snapshot_payload_valid(snapshot_key, payload):
+    if not isinstance(payload, dict) or not payload:
+        return False
+    if payload.get("error"):
+        return False
+
+    required = {
+        "pillar-jobs": ("US_Unemp", "UK_Unemp", "DE_Unemp"),
+        "pillar-rates": ("Fed_Funds", "CPI", "US_10Y"),
+        "pillar-gdp": ("US_GDP", "IndPro", "Retail_Sales"),
+        "pillar-fx": ("broad_usd", "gbp_usd", "eur_usd", "usd_jpy"),
+        "quant-signals": ("Yield_Spread", "Sahm_Rule", "Risk_Barometer"),
+        "calendar-timeline": ("past", "future"),
+        "pillar-yield-curve": ("Inversion_Spread", "Term_Structure"),
+        "pillar-commodities": ("Oil", "Gold", "Credit_Spread"),
+        "macro-ai": ("executive_summary", "jobs", "inflation", "gdp", "fx", "commodities"),
+    }
+    keys = required.get(snapshot_key, ())
+    if not all(key in payload for key in keys):
+        return False
+
+    if snapshot_key == "calendar-timeline":
+        return bool(payload.get("past") or payload.get("future"))
+    if snapshot_key == "macro-ai":
+        return all(isinstance(payload.get(key), str) and payload.get(key).strip() for key in keys)
+
+    return True
+
+
 def snapshot_cached(snapshot_key, ttl_seconds):
     """Serve a persistent fresh snapshot first; refresh stale rows and fall back safely."""
     def decorator(func):
@@ -123,15 +152,15 @@ def snapshot_cached(snapshot_key, ttl_seconds):
             row = _snapshot_get_row(snapshot_key)
             age = _snapshot_age_seconds(row)
             effective_ttl = int((row or {}).get("ttl_seconds") or ttl_seconds)
-            if row and isinstance(row.get("payload"), dict) and age is not None and age < effective_ttl:
+            if row and _snapshot_payload_valid(snapshot_key, row.get("payload")) and age is not None and age < effective_ttl:
                 return row["payload"]
 
             result = func(*args, **kwargs)
-            if isinstance(result, dict) and result:
+            if _snapshot_payload_valid(snapshot_key, result):
                 _snapshot_upsert(snapshot_key, result, ttl_seconds)
                 return result
 
-            if row and isinstance(row.get("payload"), dict):
+            if row and _snapshot_payload_valid(snapshot_key, row.get("payload")):
                 return row["payload"]
             return result
         return wrapped
@@ -203,6 +232,35 @@ def get_fred_data_cached(series_id, limit=60, units="lin", frequency=None):
 @app.get("/")
 def read_root():
     return {"status": "SethiMacro Global Quant Engine Online"}
+
+@app.get("/api/runtime/status")
+def runtime_status():
+    snapshot_rows = 0
+    try:
+        headers = _snapshot_headers(write=False)
+        if headers:
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/{SNAPSHOT_TABLE}",
+                headers={**headers, "Prefer": "count=exact"},
+                params={"select": "snapshot_key", "limit": "1"},
+                timeout=SNAPSHOT_HTTP_TIMEOUT,
+            )
+            content_range = response.headers.get("content-range", "")
+            if "/" in content_range:
+                snapshot_rows = int(content_range.rsplit("/", 1)[-1])
+    except Exception:
+        snapshot_rows = 0
+
+    return {
+        "status": "ok",
+        "snapshot_read_configured": bool(_snapshot_headers(write=False)),
+        "snapshot_write_configured": bool(SUPABASE_SERVICE_KEY),
+        "snapshot_rows": snapshot_rows,
+        "cache_table": SNAPSHOT_TABLE,
+        "fred_configured": bool(FRED_API_KEY),
+        "finnhub_configured": bool(os.getenv("FINNHUB_API_KEY")),
+        "google_ai_configured": bool(os.getenv("GOOGLE_API_KEY")),
+    }
 
 @app.get("/api/pillar-jobs")
 @snapshot_cached("pillar-jobs", 43200)

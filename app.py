@@ -2,11 +2,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv, find_dotenv
 import time
 from google import genai
 import json
+from functools import wraps
 
 # Aggressively load the secure vault
 load_dotenv(find_dotenv())
@@ -22,32 +23,157 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ==========================================
-# THE ENTERPRISE RAM CACHE & FETCH ENGINE
+# PERSISTENT SETHIMACRO SNAPSHOTS
+# ==========================================
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://gqqftksplktxfrilltsx.supabase.co").rstrip("/")
+SUPABASE_PUBLIC_KEY = os.getenv(
+    "SUPABASE_PUBLIC_KEY",
+    "sb_publishable_zjKjFfN1wTq9ocpje09Z1A_xgLe0UiK",
+)
+SUPABASE_SERVICE_KEY = (
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    or os.getenv("SUPABASE_SERVICE_KEY")
+    or os.getenv("SUPABASE_KEY")
+)
+SNAPSHOT_TABLE = "sethimacro_public_snapshots"
+SNAPSHOT_HTTP_TIMEOUT = 4
+
+
+def _snapshot_headers(write=False):
+    key = SUPABASE_SERVICE_KEY if write else (SUPABASE_SERVICE_KEY or SUPABASE_PUBLIC_KEY)
+    if not key:
+        return None
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+
+
+def _snapshot_get_row(snapshot_key):
+    headers = _snapshot_headers(write=False)
+    if not headers:
+        return None
+    try:
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{SNAPSHOT_TABLE}",
+            headers=headers,
+            params={
+                "snapshot_key": f"eq.{snapshot_key}",
+                "select": "snapshot_key,payload,generated_at,ttl_seconds,source_status,updated_at",
+                "limit": "1",
+            },
+            timeout=SNAPSHOT_HTTP_TIMEOUT,
+        )
+        if response.status_code >= 400:
+            return None
+        rows = response.json()
+        return rows[0] if isinstance(rows, list) and rows else None
+    except Exception:
+        return None
+
+
+def _snapshot_age_seconds(row):
+    if not row:
+        return None
+    raw = row.get("generated_at") or row.get("updated_at")
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds())
+    except Exception:
+        return None
+
+
+def _snapshot_upsert(snapshot_key, payload, ttl_seconds, source_status="ok"):
+    headers = _snapshot_headers(write=True)
+    if not headers or not isinstance(payload, dict) or not payload:
+        return False
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        write_headers = dict(headers)
+        write_headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/{SNAPSHOT_TABLE}",
+            headers=write_headers,
+            params={"on_conflict": "snapshot_key"},
+            json={
+                "snapshot_key": snapshot_key,
+                "payload": payload,
+                "generated_at": now,
+                "ttl_seconds": int(ttl_seconds),
+                "source_status": source_status,
+                "updated_at": now,
+            },
+            timeout=SNAPSHOT_HTTP_TIMEOUT,
+        )
+        return response.status_code < 400
+    except Exception:
+        return False
+
+
+def snapshot_cached(snapshot_key, ttl_seconds):
+    """Serve a persistent fresh snapshot first; refresh stale rows and fall back safely."""
+    def decorator(func):
+        @wraps(func)
+        def wrapped(*args, **kwargs):
+            row = _snapshot_get_row(snapshot_key)
+            age = _snapshot_age_seconds(row)
+            effective_ttl = int((row or {}).get("ttl_seconds") or ttl_seconds)
+            if row and isinstance(row.get("payload"), dict) and age is not None and age < effective_ttl:
+                return row["payload"]
+
+            result = func(*args, **kwargs)
+            if isinstance(result, dict) and result:
+                _snapshot_upsert(snapshot_key, result, ttl_seconds)
+                return result
+
+            if row and isinstance(row.get("payload"), dict):
+                return row["payload"]
+            return result
+        return wrapped
+    return decorator
+
+
+# ==========================================
+# FAST IN-PROCESS FRED CACHE + FETCH ENGINE
 # ==========================================
 MACRO_CACHE = {}
-CACHE_EXPIRE_SECONDS = 43200 # 12 Hours (FRED only updates data daily/monthly anyway)
+CACHE_EXPIRE_SECONDS = 43200  # 12 hours
 
-def get_fred_data_cached(series_id, limit=60, units="lin"):
+
+def get_fred_data_cached(series_id, limit=60, units="lin", frequency=None):
     """
-    Checks the RAM cache first. If missing or expired, fetches fresh data 
-    from FRED using a 15-second timeout and a 3-attempt retry loop.
+    Fast RAM cache for warm requests. Persistent endpoint snapshots sit above this
+    layer, so a Render restart no longer forces visitors to rebuild every series.
     """
-    cache_key = f"{series_id}_{limit}_{units}"
+    cache_key = f"{series_id}_{limit}_{units}_{frequency or 'native'}"
     current_time = time.time()
-    
-    # 1. Return from RAM cache if valid
+
     if cache_key in MACRO_CACHE:
         cached_time, cached_data = MACRO_CACHE[cache_key]
         if current_time - cached_time < CACHE_EXPIRE_SECONDS:
             return cached_data
 
-    # 2. Query FRED API on cache miss
-    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json&limit={limit}&sort_order=desc&units={units}"
-    
+    params = {
+        "series_id": series_id,
+        "api_key": FRED_API_KEY,
+        "file_type": "json",
+        "limit": limit,
+        "sort_order": "desc",
+        "units": units,
+    }
+    if frequency:
+        params["frequency"] = frequency
+
+    url = "https://api.stlouisfed.org/fred/series/observations"
+
     for attempt in range(3):
         try:
-            response = requests.get(url, timeout=15)
+            response = requests.get(url, params=params, timeout=15)
             if response.status_code == 200:
                 data = response.json()
                 obs_list = [
@@ -56,20 +182,20 @@ def get_fred_data_cached(series_id, limit=60, units="lin"):
                     if obs.get("value") not in [".", None, ""]
                 ]
                 if obs_list:
-                    # 3. Save to RAM and return
                     MACRO_CACHE[cache_key] = (current_time, obs_list)
                     return obs_list
             else:
                 print(f"FRED HTTP {response.status_code} on {series_id}")
-                break # Stop retrying on hard errors (e.g., 400 Bad Request)
+                break
         except requests.exceptions.ReadTimeout:
-            print(f"FRED Timeout on {series_id}. Retrying {attempt+1}/3...")
-            time.sleep(1) # Brief pause before knocking again
-        except Exception as e:
-            print(f"Failed to fetch {series_id}: {e}")
+            print(f"FRED timeout on {series_id}. Retrying {attempt + 1}/3...")
+            time.sleep(1)
+        except Exception as exc:
+            print(f"Failed to fetch {series_id}: {exc}")
             break
-            
+
     return []
+
 # ==========================================
 # --- GLOBAL MACRO PILLARS ---
 # ==========================================

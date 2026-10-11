@@ -499,7 +499,163 @@ def get_quant_signals(force_refresh: bool = False):
     signals["USD_Strength"] = usd_signal
     signals["DXY_Strength"] = usd_signal  # legacy alias
 
-    # 5. COMPOSITE RISK BAROMETER (0-100 Score)
+    # 5. MACRO REGIME: directional breadth across growth and inflation momentum.
+    # The score is deliberately simple and auditable: each component contributes
+    # -1 / 0 / +1 after a small deadband, then the available signals are averaged.
+    def _series_values(series):
+        return [float(item["value"]) for item in series if isinstance(item, dict) and isinstance(item.get("value"), (int, float))]
+
+    def _direction(delta, deadband=0.0, invert=False):
+        if not isinstance(delta, (int, float)):
+            return None
+        if abs(delta) <= deadband:
+            score = 0
+        else:
+            score = 1 if delta > 0 else -1
+        return -score if invert else score
+
+    def _component(name, latest, change, window, unit, signal):
+        return {
+            "name": name,
+            "latest": round(latest, 2) if isinstance(latest, (int, float)) else None,
+            "change": round(change, 2) if isinstance(change, (int, float)) else None,
+            "window": window,
+            "unit": unit,
+            "signal": signal,
+        }
+
+    growth_components = []
+    inflation_components = []
+
+    try:
+        unemp_regime = get_fred_data_cached("UNRATE", limit=8)
+        unemp_vals = _series_values(unemp_regime)
+        if len(unemp_vals) >= 4:
+            delta = unemp_vals[0] - unemp_vals[3]
+            growth_components.append(_component(
+                "US unemployment", unemp_vals[0], delta, "3M", "pp",
+                _direction(delta, deadband=0.05, invert=True)
+            ))
+    except Exception:
+        pass
+
+    try:
+        retail_regime = get_fred_data_cached("RSAFS", limit=8, units="pc1")
+        retail_vals = _series_values(retail_regime)
+        if len(retail_vals) >= 4:
+            delta = retail_vals[0] - retail_vals[3]
+            growth_components.append(_component(
+                "Retail sales YoY", retail_vals[0], delta, "3M", "pp",
+                _direction(delta, deadband=0.10)
+            ))
+    except Exception:
+        pass
+
+    try:
+        indpro_regime = get_fred_data_cached("INDPRO", limit=8, units="pc1")
+        indpro_vals = _series_values(indpro_regime)
+        if len(indpro_vals) >= 4:
+            delta = indpro_vals[0] - indpro_vals[3]
+            growth_components.append(_component(
+                "Industrial production YoY", indpro_vals[0], delta, "3M", "pp",
+                _direction(delta, deadband=0.10)
+            ))
+    except Exception:
+        pass
+
+    try:
+        nfp_regime = get_fred_data_cached("PAYEMS", limit=8, units="chg")
+        nfp_vals = _series_values(nfp_regime)
+        if len(nfp_vals) >= 6:
+            recent_avg = sum(nfp_vals[:3]) / 3.0
+            prior_avg = sum(nfp_vals[3:6]) / 3.0
+            delta = recent_avg - prior_avg
+            growth_components.append(_component(
+                "Payrolls 3M avg", recent_avg, delta, "vs prior 3M", "k",
+                _direction(delta, deadband=10.0)
+            ))
+    except Exception:
+        pass
+
+    for label, series_id in (
+        ("Headline CPI YoY", "CPIAUCSL"),
+        ("Core PCE YoY", "PCEPILFE"),
+        ("PPI YoY", "WPSFD4131"),
+    ):
+        try:
+            inflation_series = get_fred_data_cached(series_id, limit=8, units="pc1")
+            inflation_vals = _series_values(inflation_series)
+            if len(inflation_vals) >= 4:
+                delta = inflation_vals[0] - inflation_vals[3]
+                inflation_components.append(_component(
+                    label, inflation_vals[0], delta, "3M", "pp",
+                    _direction(delta, deadband=0.10)
+                ))
+        except Exception:
+            pass
+
+    def _breadth_score(components):
+        scores = [item["signal"] for item in components if item.get("signal") in (-1, 0, 1)]
+        return round((sum(scores) / len(scores)) * 100, 0) if scores else None
+
+    growth_score = _breadth_score(growth_components)
+    inflation_score = _breadth_score(inflation_components)
+
+    if isinstance(growth_score, (int, float)):
+        growth_state = "Improving" if growth_score > 0 else ("Slowing" if growth_score < 0 else "Broadly stable")
+    else:
+        growth_state = "Insufficient data"
+
+    if isinstance(inflation_score, (int, float)):
+        inflation_state = "Heating" if inflation_score > 0 else ("Cooling" if inflation_score < 0 else "Broadly stable")
+    else:
+        inflation_state = "Insufficient data"
+
+    if isinstance(growth_score, (int, float)) and isinstance(inflation_score, (int, float)):
+        if growth_score >= 0 and inflation_score <= 0:
+            regime_label = "Growth improving · Inflation cooling"
+            regime_key = "growth_up_inflation_down"
+        elif growth_score >= 0 and inflation_score > 0:
+            regime_label = "Growth improving · Inflation heating"
+            regime_key = "growth_up_inflation_up"
+        elif growth_score < 0 and inflation_score <= 0:
+            regime_label = "Growth slowing · Inflation cooling"
+            regime_key = "growth_down_inflation_down"
+        else:
+            regime_label = "Growth slowing · Inflation heating"
+            regime_key = "growth_down_inflation_up"
+
+        signals["Macro_Regime"] = {
+            "label": regime_label,
+            "key": regime_key,
+            "growth_score": growth_score,
+            "inflation_score": inflation_score,
+            "growth_state": growth_state,
+            "inflation_state": inflation_state,
+            "growth_components": growth_components,
+            "inflation_components": inflation_components,
+            "available_growth_signals": len(growth_components),
+            "available_inflation_signals": len(inflation_components),
+            "methodology": "Directional breadth across four US growth indicators and three US inflation indicators. +100 means all available components are rising/improving; -100 means all are falling/cooling.",
+            "partial": len(growth_components) < 3 or len(inflation_components) < 2,
+        }
+    else:
+        signals["Macro_Regime"] = {
+            "label": "Partial data",
+            "key": "partial",
+            "growth_score": growth_score,
+            "inflation_score": inflation_score,
+            "growth_state": growth_state,
+            "inflation_state": inflation_state,
+            "growth_components": growth_components,
+            "inflation_components": inflation_components,
+            "available_growth_signals": len(growth_components),
+            "available_inflation_signals": len(inflation_components),
+            "methodology": "Directional breadth across US growth and inflation indicators.",
+            "partial": True,
+        }
+
+    # 6. COMPOSITE RISK BAROMETER (0-100 Score)
     # Never fabricate a neutral score when an input is unavailable.
     if all(isinstance(value, (int, float)) for value in (sahm_value, spread, actual_fed_funds)):
         base_friction = 15.0
